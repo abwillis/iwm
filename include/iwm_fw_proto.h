@@ -3,6 +3,7 @@
 #define IWM_FW_PROTO_H
 
 #include "iwm_types.h"
+#include "iwm_fw_image.h"
 
 /* Private ring-3 firmware-loader category. GenMAC/XWLAN keeps category 0x99. */
 #define IWM_IOCTL_CATEGORY       0x91U
@@ -62,9 +63,11 @@ struct IWM_PACKED iwm_fw_status {
     uint16_t state;
 };
 
-typedef int (*iwm_fw_consume_fn)(void *context, uint32_t offset,
-                                 const uint8_t *data, uint16_t length);
-
+/*
+ * Every accepted DATA record is copied into the bound firmware store before
+ * the CRC advances; COMMIT verifies the CRC and catalogs the image. A session
+ * without a store validates the stream only and refuses to start loading.
+ */
 struct iwm_fw_session {
     uint32_t total_length;
     uint32_t expected_crc32;
@@ -73,20 +76,20 @@ struct iwm_fw_session {
     uint16_t next_sequence;
     uint16_t state;
     int32_t last_error;
-    iwm_fw_consume_fn consume;
-    void *consume_context;
+    struct iwm_blob *store;
+    struct iwm_fw_image catalog;
 };
 
 uint32_t iwm_crc32_update(uint32_t crc, const void *data, size_t length);
-void iwm_fw_session_init(struct iwm_fw_session *s,
-                         iwm_fw_consume_fn consume, void *context);
+void iwm_fw_session_init(struct iwm_fw_session *s, struct iwm_blob *store);
 int iwm_fw_begin(struct iwm_fw_session *s, const struct iwm_fw_begin *begin);
 int iwm_fw_push(struct iwm_fw_session *s, const struct iwm_fw_chunk *chunk);
 int iwm_fw_commit(struct iwm_fw_session *s);
 /* error == IWM_OK: caller-requested abort, refused while LOADING/RUNNING.
  * error != IWM_OK: driver-internal failure, always forces IWM_FW_FAILED. */
 int iwm_fw_abort(struct iwm_fw_session *s, int error);
-/* READY -> LOADING once the staged image is handed to the hardware loader. */
+/* READY -> LOADING once the staged image is handed to the hardware loader.
+ * Returns IWM_ENOTSUP when no firmware store is bound. */
 int iwm_fw_start_load(struct iwm_fw_session *s);
 /* LOADING -> RUNNING when the runtime image reports ALIVE. */
 int iwm_fw_mark_running(struct iwm_fw_session *s);

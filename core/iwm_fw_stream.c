@@ -2,13 +2,11 @@
 #include <string.h>
 #include "iwm_fw_proto.h"
 
-void iwm_fw_session_init(struct iwm_fw_session *s,
-                         iwm_fw_consume_fn consume, void *context)
+void iwm_fw_session_init(struct iwm_fw_session *s, struct iwm_blob *store)
 {
     memset(s, 0, sizeof(*s));
     s->state = IWM_FW_EMPTY;
-    s->consume = consume;
-    s->consume_context = context;
+    s->store = store;
 }
 
 int iwm_fw_begin(struct iwm_fw_session *s, const struct iwm_fw_begin *begin)
@@ -21,6 +19,15 @@ int iwm_fw_begin(struct iwm_fw_session *s, const struct iwm_fw_begin *begin)
      * READY image) first. */
     if (s->state != IWM_FW_EMPTY && s->state != IWM_FW_FAILED)
         return IWM_EBUSY;
+    memset(&s->catalog, 0, sizeof(s->catalog));
+    if (s->store) {
+        int rc = iwm_blob_resize(s->store, begin->total_length);
+        if (rc != IWM_OK) {
+            s->last_error = rc;
+            s->state = IWM_FW_FAILED;
+            return rc;
+        }
+    }
     s->total_length = begin->total_length;
     s->expected_crc32 = begin->expected_crc32;
     s->running_crc32 = 0xFFFFFFFFUL;
@@ -38,13 +45,14 @@ int iwm_fw_push(struct iwm_fw_session *s, const struct iwm_fw_chunk *chunk)
         return IWM_ESTATE;
     if (chunk->length == 0 || chunk->length > IWM_FW_CHUNK_MAX ||
         chunk->sequence != s->next_sequence || chunk->offset != s->accepted ||
-        s->accepted + chunk->length > s->total_length) {
+        s->accepted > s->total_length ||
+        (uint32_t)chunk->length > s->total_length - s->accepted) {
         s->last_error = IWM_EINVAL;
         return IWM_EINVAL;
     }
-    if (s->consume) {
-        rc = s->consume(s->consume_context, chunk->offset,
-                        chunk->data, chunk->length);
+    if (s->store) {
+        rc = iwm_blob_write(s->store, chunk->offset,
+                            chunk->data, chunk->length);
         if (rc != IWM_OK) {
             s->last_error = rc;
             s->state = IWM_FW_FAILED;
@@ -74,6 +82,16 @@ int iwm_fw_commit(struct iwm_fw_session *s)
         s->state = IWM_FW_FAILED;
         return IWM_ECRC;
     }
+    if (s->store) {
+        int rc = iwm_fw_image_parse(s->store, &s->catalog);
+        if (rc == IWM_OK && s->catalog.runtime_count == 0)
+            rc = IWM_EFORMAT;
+        if (rc != IWM_OK) {
+            s->last_error = rc;
+            s->state = IWM_FW_FAILED;
+            return rc;
+        }
+    }
     s->state = IWM_FW_READY;
     s->last_error = IWM_OK;
     return IWM_OK;
@@ -90,6 +108,8 @@ int iwm_fw_abort(struct iwm_fw_session *s, int error)
     s->next_sequence = 0;
     s->last_error = error;
     s->state = error == IWM_OK ? IWM_FW_EMPTY : IWM_FW_FAILED;
+    memset(&s->catalog, 0, sizeof(s->catalog));
+    iwm_blob_reset(s->store);
     return IWM_OK;
 }
 
@@ -97,6 +117,9 @@ int iwm_fw_start_load(struct iwm_fw_session *s)
 {
     if (!s || s->state != IWM_FW_READY)
         return IWM_ESTATE;
+    /* Nothing can be loaded without a retained image and a runtime section. */
+    if (!s->store || s->catalog.runtime_count == 0)
+        return IWM_ENOTSUP;
     s->state = IWM_FW_LOADING;
     s->last_error = IWM_OK;
     return IWM_OK;

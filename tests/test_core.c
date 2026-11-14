@@ -18,17 +18,6 @@ static void mock_write(void *p, uint32_t off, uint32_t value)
 }
 static void mock_delay(void *p, uint32_t us) { (void)p; (void)us; }
 
-struct sink { uint8_t bytes[64]; size_t used; };
-static int consume(void *p, uint32_t off, const uint8_t *data, uint16_t n)
-{
-    struct sink *s = (struct sink *)p;
-    assert(off == s->used);
-    assert(s->used + n <= sizeof(s->bytes));
-    memcpy(s->bytes + s->used, data, n);
-    s->used += n;
-    return IWM_OK;
-}
-
 int main(void)
 {
     const struct iwm_device_config *cfg;
@@ -38,14 +27,19 @@ int main(void)
     struct iwm_fw_session fw;
     struct iwm_fw_begin begin;
     struct iwm_fw_chunk *chunk;
-    struct sink sink;
     struct iwm_oid_request oid;
     uint32_t value;
 
     cfg = iwm_lookup_device(0x8086, 0x9df0);
     assert(cfg && cfg->family == IWM_FAMILY_9000 && cfg->integrated);
-    assert(iwm_lookup_device(0x8086, 0xa370) == cfg + 1 ||
-           iwm_lookup_device(0x8086, 0xa370) != NULL);
+    assert(cfg->xtal_latency == 650 && cfg->phy_flags == 0);
+    assert(iwm_lookup_device(0x8086, 0xa370) == cfg + 1);
+    cfg = iwm_lookup_device(0x8086, 0x30dc);
+    assert(cfg && cfg->xtal_latency == 2820 && cfg->integrated);
+    cfg = iwm_lookup_device(0x8086, 0x31dc);
+    assert(cfg && cfg->xtal_latency == 670 &&
+           (cfg->phy_flags & IWM_CFG_SHARED_CLK));
+    assert(iwm_lookup_device(0x8087, 0x9df0) == NULL);
 
     memset(&hw, 0, sizeof(hw));
     memset(&ops, 0, sizeof(ops));
@@ -57,8 +51,8 @@ int main(void)
     assert(iwm_adapter_probe(&a, 0x8086, 0x9df0, 0xF0000000UL, 11) == IWM_OK);
     assert(a.ring_plan.rx_count == IWM_RX_MQ_RING_COUNT);
 
-    memset(&sink, 0, sizeof(sink));
-    iwm_fw_session_init(&fw, consume, &sink);
+    /* Validation-only session: CRC and ordering, nothing retained. */
+    iwm_fw_session_init(&fw, NULL);
     memset(&begin, 0, sizeof(begin));
     begin.magic = IWM_FW_MAGIC;
     begin.total_length = 4;
@@ -71,6 +65,9 @@ int main(void)
     chunk->data[2] = 3; chunk->data[3] = 4;
     assert(iwm_fw_push(&fw, chunk) == IWM_OK);
     assert(iwm_fw_commit(&fw) == IWM_OK);
+    /* Without a store there is nothing to load. */
+    assert(iwm_fw_start_load(&fw) == IWM_ENOTSUP);
+    assert(fw.state == IWM_FW_READY);
     free(chunk);
 
     memset(&oid, 0, sizeof(oid));

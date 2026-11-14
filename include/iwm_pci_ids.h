@@ -22,6 +22,9 @@ struct iwm_device_config {
     uint8_t integrated;
     uint8_t nvm_hw_section;
     uint16_t xtal_latency;
+    /* Bit flags; IWM_CFG_SHARED_CLK maps to Linux FW_PHY_CFG_SHARED_CLK. */
+#define IWM_CFG_SHARED_CLK 0x01U
+    uint8_t phy_flags;
 };
 
 const struct iwm_device_config *iwm_lookup_device(uint16_t vendor,

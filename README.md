@@ -45,9 +45,9 @@ This does not build an OS/2 driver. It verifies the portable core before target 
 ## OS/2 build start
 
 1. Install Open Watcom 2.0 and NASM.
-2. Set `MMROOT` to the MultiMac source tree and `DDKBASE` to the preferred `miniddk` tree.
+2. Use `Microsoft Copilot Chat Files/OS2Stuff`, starting with `COPILOT_OS2_START_HERE`, as the OS/2 reference; miniddk takes precedence over ddk. `MMROOT` is not used.
 3. Run `build-ring3.cmd` to build `IWMFWLD.EXE`.
-4. Integrate `os2/iwm_multimac_glue.c` with the MultiMac `common16` strategy/NDIS framework and implement `os2/iwm_os2_hal.c` with the preferred miniddk declarations.
+4. Implement the callbacks in `include/iwm_os2_adapter.h` from verified miniddk declarations. MultiMac and MultiMac1 are historical OS/2 pattern references only, not includes, link inputs or build prerequisites. See `docs/REFACTOR.md`.
 5. Build the 16-bit MAC driver using the same segment/link layout as a complete MultiMac driver, not the incomplete `multimac/iwl` shell.
 
 ## First useful hardware milestone

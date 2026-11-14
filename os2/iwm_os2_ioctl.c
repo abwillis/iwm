@@ -43,7 +43,8 @@ int iwm_os2_ioctl_dispatch(struct iwm_adapter *a,
             chunk = (const struct iwm_fw_chunk *)r->data;
             /* Never read past the bytes the caller actually supplied. */
             if (chunk->length > IWM_FW_CHUNK_MAX ||
-                r->data_length < IWM_FW_CHUNK_HEADER + (uint32_t)chunk->length)
+                (uint32_t)chunk->length >
+                    r->data_length - IWM_FW_CHUNK_HEADER)
                 return IWM_EINVAL;
             return iwm_fw_push(&a->firmware, chunk);
         case IWM_IOCTL_FW_COMMIT:
@@ -51,9 +52,12 @@ int iwm_os2_ioctl_dispatch(struct iwm_adapter *a,
             if (rc == IWM_OK)
                 rc = iwm_fw_start_load(&a->firmware);
             if (rc == IWM_OK) {
-                /* Milestone hook: parse TLVs, load init/runtime images via FH
-                 * DMA. The ALIVE handler calls iwm_adapter_fw_alive(); load
-                 * errors or ALIVE timeout call iwm_fw_abort(fw, error). */
+                /* The image is CRC-verified and cataloged in the bound
+                 * store. Target milestone: program RX/command queues, load
+                 * init/runtime sections via FH DMA, enable interrupts, then
+                 * release CPU reset. The ALIVE handler calls
+                 * iwm_adapter_fw_alive(); a load error or ALIVE timeout calls
+                 * iwm_fw_abort(fw, error). */
                 a->state = IWM_ADAPTER_FW_WAIT;
             }
             return rc;

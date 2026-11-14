@@ -16,7 +16,8 @@ struct iwm_os2_ioctl {
 int iwm_os2_ioctl_dispatch(struct iwm_adapter *adapter,
                            struct iwm_os2_ioctl *request);
 
-/* Implemented by the thin MultiMac/Dev16lib layer on the target system. */
+/* Implemented on the target from verified miniddk declarations; see
+ * iwm_os2_adapter.h. MultiMac/MultiMac1 are reference-only, not build inputs. */
 int iwm_os2_attach(struct iwm_adapter *adapter);
 void iwm_os2_detach(struct iwm_adapter *adapter);
 void iwm_os2_isr(struct iwm_adapter *adapter);

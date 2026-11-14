@@ -90,7 +90,10 @@ void iwm_free_rings(struct iwm_adapter *adapter);
 /* Called from deferred interrupt work when the runtime ALIVE notification
  * arrives; moves firmware LOADING -> RUNNING and the adapter to READY. */
 int iwm_adapter_fw_alive(struct iwm_adapter *adapter);
-int iwm_fw_consume_stub(void *context, uint32_t offset,
-                        const uint8_t *data, uint16_t length);
+/* Bind the OS-owned physical firmware store. A non-NULL store may only be
+ * bound while no image is in flight; NULL always unbinds and resets the
+ * firmware session (used by detach after iwm_stop_device). */
+int iwm_adapter_set_fw_store(struct iwm_adapter *adapter,
+                             struct iwm_blob *store);
 
 #endif

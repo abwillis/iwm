@@ -11,7 +11,11 @@
 #define CSR_HW_REV           0x028UL
 #define CSR_MBOX_SET_REG     0x088UL
 
+/* PREPARE (Linux CSR_HW_IF_CONFIG_REG_WAKE_ME, 0x08000000) is host-owned;
+ * NIC_READY (Linux CSR_HW_IF_CONFIG_REG_PCI_OWN_SET, 0x00400000) is set by
+ * the device and only observed by the driver. */
 #define CSR_HW_IF_NIC_READY  0x00400000UL
+#define CSR_HW_IF_PREPARE    0x08000000UL
 #define CSR_RESET_SW         0x00000080UL
 #define CSR_RESET_MASTER_DISABLED 0x00000100UL
 #define CSR_RESET_STOP_MASTER 0x00000200UL
@@ -50,7 +54,22 @@ void iwm_adapter_init(struct iwm_adapter *a,
     a->os_context = context;
     a->state = IWM_ADAPTER_DOWN;
     a->rssi_dbm = -200;
-    iwm_fw_session_init(&a->firmware, iwm_fw_consume_stub, a);
+    iwm_fw_session_init(&a->firmware, NULL);
+}
+
+int iwm_adapter_set_fw_store(struct iwm_adapter *a, struct iwm_blob *store)
+{
+    if (!a)
+        return IWM_EINVAL;
+    if (!store) {
+        iwm_fw_session_init(&a->firmware, NULL);
+        return IWM_OK;
+    }
+    if (a->firmware.state != IWM_FW_EMPTY &&
+        a->firmware.state != IWM_FW_FAILED)
+        return IWM_EBUSY;
+    iwm_fw_session_init(&a->firmware, store);
+    return IWM_OK;
 }
 
 int iwm_adapter_probe(struct iwm_adapter *a, uint16_t vendor,
@@ -78,7 +97,7 @@ int iwm_prepare_card_hw(struct iwm_adapter *a)
     int rc;
     if (!a || a->state < IWM_ADAPTER_PROBED)
         return IWM_ESTATE;
-    v = rd(a, CSR_HW_IF_CONFIG_REG) | CSR_HW_IF_NIC_READY;
+    v = rd(a, CSR_HW_IF_CONFIG_REG) | CSR_HW_IF_PREPARE;
     wr(a, CSR_HW_IF_CONFIG_REG, v);
     rc = poll(a, CSR_HW_IF_CONFIG_REG, CSR_HW_IF_NIC_READY,
               CSR_HW_IF_NIC_READY, 50, 200);
@@ -126,8 +145,7 @@ int iwm_stop_device(struct iwm_adapter *a)
     wr(a, CSR_RESET, rd(a, CSR_RESET) | CSR_RESET_SW);
     a->state = IWM_ADAPTER_DOWN;
     /* Firmware is gone after SW reset; permit a fresh BEGIN. */
-    iwm_fw_session_init(&a->firmware, a->firmware.consume,
-                        a->firmware.consume_context);
+    iwm_fw_session_init(&a->firmware, a->firmware.store);
     return IWM_OK;
 }
 
@@ -141,17 +159,5 @@ int iwm_adapter_fw_alive(struct iwm_adapter *a)
         return rc;
     a->state = IWM_ADAPTER_READY;
     ++a->status_generation;
-    return IWM_OK;
-}
-
-int iwm_fw_consume_stub(void *context, uint32_t offset,
-                        const uint8_t *data, uint16_t length)
-{
-    struct iwm_adapter *a = (struct iwm_adapter *)context;
-    (void)offset;
-    (void)data;
-    if (!a || a->state < IWM_ADAPTER_PROBED || length == 0)
-        return IWM_ESTATE;
-    /* Milestone hook: parse TLVs and feed firmware sections through FH DMA. */
     return IWM_OK;
 }

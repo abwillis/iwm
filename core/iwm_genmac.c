@@ -82,13 +82,17 @@ int iwm_genmac_oid_set(struct iwm_adapter *a, struct iwm_oid_request *r)
         ++a->status_generation;
         return IWM_OK;
     case OID_802_11_INFRASTRUCTURE_MODE:
+    case OID_802_11_POWER_MODE:
+        /* Policy values with no hardware effect before association. */
+        r->bytes_done = r->data_length;
+        return IWM_OK;
     case OID_802_11_AUTHENTICATION_MODE:
     case OID_802_11_ENCRYPTION_STATUS:
     case OID_802_11_PRIVACY_FILTER:
-    case OID_802_11_POWER_MODE:
-        /* Accepted and retained by the future station-state layer. */
-        r->bytes_done = r->data_length;
-        return IWM_OK;
+        /* Security state must not be reported as applied until the firmware
+         * station and key commands exist. */
+        r->ndis_status = 0xC00000BBUL;
+        return IWM_ENOTSUP;
     case OID_802_11_ADD_KEY:
     case OID_802_11_REMOVE_KEY:
         /* Key-command construction is a required milestone before WPA traffic. */

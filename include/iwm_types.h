@@ -39,7 +39,9 @@ enum iwm_status {
     IWM_ESTATE = -7,
     IWM_ECRC = -8,
     IWM_ENOTSUP = -9,
-    IWM_EOVERFLOW = -10
+    IWM_EOVERFLOW = -10,
+    IWM_EFORMAT = -11,
+    IWM_ERANGE = -12
 };
 
 static IWM_INLINE uint16_t iwm_get_le16(const uint8_t *p)

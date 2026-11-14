@@ -53,6 +53,10 @@ static int load_firmware(const char *device, const char *path)
         fprintf(stderr, "firmware protocol query failed: %lu\n", rc);
         DosClose(h); fclose(f); return 4;
     }
+    if (query.max_chunk_size == 0 || query.max_chunk_size > IWM_FW_CHUNK_MAX) {
+        fprintf(stderr, "driver returned an invalid chunk size\n");
+        DosClose(h); fclose(f); return 4;
+    }
     if ((uint32_t)file_length > query.max_image_size) {
         fprintf(stderr, "firmware image is too large\n");
         DosClose(h); fclose(f); return 4;
@@ -72,7 +76,7 @@ static int load_firmware(const char *device, const char *path)
         chunk->offset = offset;
         chunk->length = (uint16_t)n;
         chunk->sequence = sequence;
-        data_len = (ULONG)(8 + n);
+        data_len = (ULONG)(IWM_FW_CHUNK_HEADER + n);
         rc = ioctl_data(h, IWM_IOCTL_FW_DATA, chunk, &data_len);
         if (rc) {
             fprintf(stderr, "FW_DATA failed at %lu: %lu\n", (ULONG)offset, rc);
