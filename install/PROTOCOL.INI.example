@@ -1,0 +1,15 @@
+[PROT_MAN]
+   DRIVERNAME = PROTMAN$
+
+[IBMLXCFG]
+   TCPIP_NIF = TCPIP.NIF
+   IWMAC_NIF = IWMAC.NIF
+
+[TCPIP_NIF]
+   DriverName = TCPIP$
+   Bindings = IWMAC_NIF
+
+[IWMAC_NIF]
+   DriverName = WRND32$
+   ; Adapter = 0
+   ; Verbose = YES

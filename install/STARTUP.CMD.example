@@ -1,0 +1,6 @@
+@echo off
+rem Select the firmware file that matches the detected adapter and supported API.
+rem The name below is a deployment example; firmware is not distributed here.
+C:\IBMCOM\MACS\IWMFWLD.EXE C:\IBMCOM\MACS\iwm-9000.ucode
+if errorlevel 1 echo IWM firmware load failed.
+rem XWLAN starts and controls wpa_supplicant when a WPA profile is activated.

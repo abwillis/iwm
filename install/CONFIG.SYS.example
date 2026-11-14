@@ -1,0 +1,3 @@
+REM Load after the PCI/ACPI support required by the chosen MultiMac environment.
+REM Only one driver using WRND32$ may be active.
+DEVICE=C:\IBMCOM\MACS\IWMAC.OS2 /V

@@ -1,0 +1,6 @@
+[IWMAC_NIF]
+Type = NDIS_MAC
+Title = "Intel iwm Wi-Fi MAC (experimental)"
+Version = 0.0.1
+DriverName = WRND32$
+Help = "Experimental Intel 3160/3165/3168/7260/7265/8260/8265/9260/9560 Wi-Fi driver."

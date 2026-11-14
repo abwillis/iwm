@@ -1,0 +1,8 @@
+@echo off
+rem Adapt these paths to the local OS/2 build tree.
+set WATCOM=C:\WATCOM
+set PATH=%WATCOM%\BINP;%WATCOM%\BINW;%PATH%
+set INCLUDE=%WATCOM%\H;%WATCOM%\H\OS2
+set EDPATH=%WATCOM%\EDDAT
+set MMROOT=C:\DEVEL\MULTIMAC
+set DDKBASE=C:\DEVEL\MINIDDK
