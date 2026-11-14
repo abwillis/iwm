@@ -4,11 +4,11 @@ CC ?= cc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Werror
 CPPFLAGS += -Iinclude -Itests
 CORE = core/iwm_devices.c core/iwm_crc32.c core/iwm_fw_stream.c \
-       core/iwm_fw_image.c core/iwm_transport.c \
+       core/iwm_fw_image.c core/iwm_transport.c core/iwm_bar.c \
        core/iwm_hw.c core/iwm_rings.c core/iwm_genmac.c core/iwm_ndis.c
 OS2HOST = os2/iwm_os2_ioctl.c os2/iwm_os2_adapter.c
 TESTS = test_core test_fw_fixes test_fw_image test_transport test_oid \
-        test_os2_adapter
+        test_os2_adapter test_bar
 
 .PHONY: all test clean
 all: $(TESTS:%=build/%)
