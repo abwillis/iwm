@@ -2,7 +2,11 @@
 #ifndef IWM_TYPES_H
 #define IWM_TYPES_H
 
+/* Ring 0: Dev32lib.h already provides size_t and offsetof, and the miniddk
+ * stddef.h redefines them. Everything else keeps the standard header. */
+#if !defined(IWM_RING0)
 #include <stddef.h>
+#endif
 #if defined(__WATCOMC__) && defined(__OS2__)
 typedef unsigned char  uint8_t;
 typedef unsigned short uint16_t;

@@ -30,20 +30,20 @@ DRV16 = $(ROOT)\drv16
 OS2TK = $(ROOT)
 !endif
 !ifndef ACPITK
-ACPITK = $(ROOT)\acpitoolkit
+ACPITK = $(ROOT)\acpi
 !endif
 
-MINIDDK_H = $(MINIDDK)\h
+MINIDDK_H = $(MINIDDK)\base\h
 DDK_H     = $(DDK)\base\h
-DRV32_H   = $(DRV32)\include
-DRV32_LIB = $(DRV32)\lib
-DRV16_H   = $(DRV16)\include
+DRV32_H   = $(DRV32)\kit
+DRV32_LIB = $(DRV32)\kit
+DRV16_H   = $(DRV16)\kit
 OS2TK_H   = $(OS2TK)\h
 OS2TK_LIB = $(OS2TK)\lib
 ACPITK_H  = $(ACPITK)\h
 WATCOM_H  = $(WATCOM)\h;$(WATCOM)\h\os2
 
-DRV32LIB  = $(DRV32_LIB)\Dev32lib.lib
+DRV32LIB  = $(DRV32_LIB)\Drv32.lib
 
 #----------------------------------------------------------------------
 # Output
@@ -68,8 +68,8 @@ INC_R3 = -i=include -i=$(OS2TK_H) -i=$(WATCOM_H)
 # from the Drv32 headers (__syscall / #pragma aux), so no -ec* switch.
 # Confirm against the Drv32 sample build before relying on them.
 #----------------------------------------------------------------------
-CF_COMMON = -bt=os2 -zq -wx -we -ei -d__OS2__
-CF_R0     = $(CF_COMMON) -mf -s -zl -zls -zu -oatxsi -dIWM_RING0 $(INC_R0)
+CF_COMMON = -q -bt=os2 -zq -wx -we -ei -6s -obilmr -d__OS2__
+CF_R0     = $(CF_COMMON) -mf -s -ze -zfp -zgp -ms -wx -zp4 -za99 -zl -zls -dIWM_RING0 $(INC_R0)
 CF_R3     = $(CF_COMMON) -mf -ox $(INC_R3)
 
 !ifdef DEBUG
@@ -166,6 +166,9 @@ $(DRVNAME).lnk: makefile.wat
     @%create $@
     @%append $@ name $(DRIVER)
     @%append $@ format os2 lx physdevice
+    @%append $@ option mixed1632,nostub,align=4
+    @%append $@ option verbose,caseexact,eliminate sort global
+    @%append $@ option stack=0
     @%append $@ option quiet, map=$(DRVNAME).map, internalrelocs
     @%append $@ option description 'Intel Wireless-AC 9560 OS/2 driver (M1 probe)'
 !ifdef DEBUG
@@ -173,6 +176,7 @@ $(DRVNAME).lnk: makefile.wat
 !endif
     @for %f in ($(PROBE_OBJS)) do @%append $@ file %f
     @%append $@ library $(DRV32LIB)
+    @%append $@ library $(MINIDDK)\base32\lib\kee.lib
     @%append $@ libpath $(OS2TK_LIB)
 
 #----------------------------------------------------------------------

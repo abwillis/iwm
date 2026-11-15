@@ -14,7 +14,7 @@ TESTS = test_core test_fw_fixes test_fw_image test_transport test_oid \
 all: $(TESTS:%=build/%)
 
 build/%: tests/%.c $(CORE) $(OS2HOST)
-> @mkdir -p build
+> @mkdir build
 > $(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(CORE) $(OS2HOST) $<
 
 test: all
