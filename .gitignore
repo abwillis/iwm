@@ -6,3 +6,4 @@ build/
 *.sym
 *.exe
 *.os2
+*.lnk
