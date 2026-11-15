@@ -24,7 +24,7 @@ int main(void)
     struct mem_store ms;
     struct iwm_blob store;
     uint8_t image[160];
-    uint32_t len, crc;
+    uint32_t len, crc, scratch;
 
     memset(&ops, 0, sizeof(ops));
     ops.mmio_read32 = rd;
@@ -84,11 +84,21 @@ int main(void)
     memset(&oid, 0, sizeof(oid));
     oid.oid = OID_802_11_BSSID_LIST_SCAN;
     assert(iwm_genmac_oid_set(&a, &oid) == IWM_ESTATE);
+    memset(&io, 0, sizeof(io));
+    io.category = GENMAC_CATEGORY;
+    io.function = GENMAC_WRAPPER_OID_SET;
+    io.parameters[0] = OID_802_11_BSSID_LIST_SCAN;
+    io.data = &scratch;
+    io.data_length = sizeof(scratch);
+    assert(iwm_os2_ioctl_dispatch(&a, &io) == IWM_ESTATE);
+    assert(io.parameters[2] == 0);
+    assert(io.parameters[3] == IWM_NDIS_STATUS_ADAPTER_NOT_READY);
     assert(iwm_adapter_fw_alive(&a) == IWM_OK);
     assert(a.firmware.state == IWM_FW_RUNNING);
     assert(iwm_genmac_oid_set(&a, &oid) == IWM_OK);
 
     /* RUNNING image cannot be overwritten, aborted or have its store swapped. */
+    io.category = IWM_IOCTL_CATEGORY;
     io.function = IWM_IOCTL_FW_BEGIN; io.data = &begin; io.data_length = sizeof(begin);
     assert(iwm_os2_ioctl_dispatch(&a, &io) == IWM_EBUSY);
     io.function = IWM_IOCTL_FW_ABORT; io.data = NULL; io.data_length = 0;
@@ -128,4 +138,5 @@ int main(void)
     puts("fw-state fix tests passed");
     return 0;
 }
+
 

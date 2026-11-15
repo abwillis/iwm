@@ -202,3 +202,4 @@ int main(void)
     puts("firmware loader tests passed");
     return 0;
 }
+

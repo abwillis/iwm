@@ -56,3 +56,4 @@ int iwm_fw_section_cpu(const struct iwm_fw_image *image, uint16_t index,
                        uint8_t image_flag);
 
 #endif
+

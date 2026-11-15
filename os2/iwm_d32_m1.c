@@ -109,14 +109,22 @@ int iwm_d32_m1(void)
     if (PsdMsiAlloc(bdf, &nmsi, &irq) || nmsi == 0) { rc = 9; goto unmap; }
     g_irq = irq;
     iwm_m1_irq = g_irq;                               /* M1 read-out */
-    if (Dev32Help_SetIRQ((void *)iwm_msi_isr, (USHORT)g_irq, 0, 0)) {
+    rc = iwm_d32_rm_create_adapter(phys, size, (USHORT)g_irq,
+                                   (USHORT)di.ipin, bdf);
+    if (rc != IWM_OK) {
         rc = 10;
         goto release;
+    }
+    if (Dev32Help_SetIRQ((void *)iwm_msi_isr, (USHORT)g_irq, 0, 0)) {
+        rc = 11;
+        goto unregister;
     }
     dprintf(0, "iwm: MSI irq %lu installed; count %lu (expect 0)\n",
             g_irq, iwm_m1_irq_count);                 /* M1 read-out */
     return 0;  /* M1 passes; teardown path needs a verified UnSetIRQ */
 
+unregister:
+    iwm_d32_rm_destroy(0);
 release:
     PsdMsiRelease(bdf);
 unmap:
@@ -124,4 +132,5 @@ unmap:
     g_csr = 0;
     return rc;
 }
+
 

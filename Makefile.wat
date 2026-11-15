@@ -50,7 +50,7 @@ CF_R0 = -q -bt=os2 -zq -wx -6s -zp4 -d__OS2__ -d1 -6 -obilmr -s &
 CF_R3 = -q -bt=os2 -zq -wx -6s -zp4 -d__OS2__ -bm -obilmr -we -ei &
         -zm -ox $(INC_R3)
 
-R0_OBJS = r0_strat.obj r0_m1.obj r0_bar.obj r0_fw.obj r0_ioctl.obj &
+R0_OBJS = r0_strat.obj r0_m1.obj r0_rm.obj r0_bar.obj r0_fw.obj r0_ioctl.obj &
           r0_devices.obj r0_crc32.obj r0_fw_stream.obj r0_fw_image.obj &
           r0_fw_loader.obj r0_transport.obj r0_hw.obj r0_rings.obj &
           r0_genmac.obj
@@ -74,6 +74,8 @@ r0_strat.obj: os2\iwm_d32_strat.c os2\iwm_d32.h .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ os2\iwm_d32_strat.c
 r0_m1.obj: os2\iwm_d32_m1.c os2\iwm_d32.h include\iwm_bar.h .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ os2\iwm_d32_m1.c
+r0_rm.obj: os2\iwm_d32_rm.c os2\iwm_d32.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ os2\iwm_d32_rm.c
 r0_bar.obj: core\iwm_bar.c include\iwm_bar.h .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ core\iwm_bar.c
 r0_fw.obj: os2\iwm_d32_fw.c os2\iwm_d32.h include\iwm_fw_loader.h .AUTODEPEND
@@ -142,3 +144,4 @@ clean: .SYMBOLIC
     @if exist *.map del *.map
     @if exist $(DRIVER) del $(DRIVER)
     @if exist $(LOADER) del $(LOADER)
+

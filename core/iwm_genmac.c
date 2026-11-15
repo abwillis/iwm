@@ -28,6 +28,8 @@ int iwm_genmac_oid_get(struct iwm_adapter *a, struct iwm_oid_request *r)
     if (!a || !r)
         return IWM_EINVAL;
     switch (r->oid) {
+    case OID_GEN_HARDWARE_STATUS:
+        return put_u32(r, IWM_NDIS_HARDWARE_READY);
     case OID_PRIVATE_WRAPPER_LANNUMBER: return put_u32(r, a->lan_number);
     case OID_PRIVATE_WRAPPER_ISWIRELESS: return put_u32(r, 1);
     case OID_PRIVATE_WRAPPER_LINKSTATUS: return put_u32(r, a->connected ? 1 : 0);
@@ -53,8 +55,10 @@ int iwm_genmac_oid_get(struct iwm_adapter *a, struct iwm_oid_request *r)
     case OID_802_11_POWER_MODE:
         value = 0; /* CAM/no power save for the first milestone. */
         return put_u32(r, value);
+    case OID_802_11_INFRASTRUCTURE_MODE:
+        return put_u32(r, a->infrastructure_mode);
     default:
-        r->ndis_status = 0xC00000BBUL; /* NDIS_STATUS_NOT_SUPPORTED */
+        r->ndis_status = IWM_NDIS_STATUS_NOT_SUPPORTED;
         return IWM_ENOTSUP;
     }
 }
@@ -62,6 +66,7 @@ int iwm_genmac_oid_get(struct iwm_adapter *a, struct iwm_oid_request *r)
 int iwm_genmac_oid_set(struct iwm_adapter *a, struct iwm_oid_request *r)
 {
     const struct iwm_ndis_ssid *ssid;
+    uint32_t value;
     if (!a || !r)
         return IWM_EINVAL;
     switch (r->oid) {
@@ -86,6 +91,15 @@ int iwm_genmac_oid_set(struct iwm_adapter *a, struct iwm_oid_request *r)
         ++a->status_generation;
         return IWM_OK;
     case OID_802_11_INFRASTRUCTURE_MODE:
+        if (!r->data || r->data_length < sizeof(value)) return IWM_EINVAL;
+        memcpy(&value, r->data, sizeof(value));
+        if (value > IWM_INFRASTRUCTURE_AUTO) return IWM_EINVAL;
+        if (a->infrastructure_mode != value) {
+            a->infrastructure_mode = value;
+            ++a->status_generation;
+        }
+        r->bytes_done = sizeof(value);
+        return IWM_OK;
     case OID_802_11_POWER_MODE:
         /* Policy values with no hardware effect before association. */
         r->bytes_done = r->data_length;
@@ -95,16 +109,17 @@ int iwm_genmac_oid_set(struct iwm_adapter *a, struct iwm_oid_request *r)
     case OID_802_11_PRIVACY_FILTER:
         /* Security state must not be reported as applied until the firmware
          * station and key commands exist. */
-        r->ndis_status = 0xC00000BBUL;
+        r->ndis_status = IWM_NDIS_STATUS_NOT_SUPPORTED;
         return IWM_ENOTSUP;
     case OID_802_11_ADD_KEY:
     case OID_802_11_REMOVE_KEY:
         /* Key-command construction is a required milestone before WPA traffic. */
-        r->ndis_status = 0xC00000BBUL;
+        r->ndis_status = IWM_NDIS_STATUS_NOT_SUPPORTED;
         return IWM_ENOTSUP;
     default:
-        r->ndis_status = 0xC00000BBUL;
+        r->ndis_status = IWM_NDIS_STATUS_NOT_SUPPORTED;
         return IWM_ENOTSUP;
     }
 }
+
 

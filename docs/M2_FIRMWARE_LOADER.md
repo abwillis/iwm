@@ -36,3 +36,4 @@ The exact section and byte counts come from the image. `stage 6` with `aliveirq 
 ## Validation
 
 Host-side validation is in `tests/test_fw_loader.c`. It checks CPU partitioning, runtime-paging exclusion, DMA transfer completion, early ALIVE capture, and the fail-safe rule that the firmware session remains `LOADING` without an RX ALIVE notification.
+

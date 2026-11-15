@@ -40,3 +40,4 @@ void iwm_ndis_link_changed(struct iwm_ndis_context *n, int connected)
                                     n->adapter->status_generation);
 }
 
+

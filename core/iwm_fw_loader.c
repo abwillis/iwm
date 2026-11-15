@@ -403,3 +403,4 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     }
     return IWM_OK;
 }
+

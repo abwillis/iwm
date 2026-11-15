@@ -8,6 +8,7 @@
 #define GENMAC_WRAPPER_OID_GET       0x40U
 #define GENMAC_WRAPPER_OID_SET       0x41U
 
+#define OID_GEN_HARDWARE_STATUS             0x00010102UL
 #define OID_GEN_LINK_SPEED                  0x00010107UL
 #define OID_GEN_MEDIA_CONNECT_STATUS        0x00010114UL
 #define OID_802_11_BSSID                    0x0D010101UL
@@ -35,8 +36,16 @@
 #define OID_PRIVATE_WRAPPER_GENMAC_VERSION   0xFFFFFF09UL
 
 #define IWM_GENMAC_VERSION 0x00030000UL
+#define IWM_NDIS_HARDWARE_READY 0UL
 #define IWM_MEDIA_CONNECTED 0UL
 #define IWM_MEDIA_DISCONNECTED 1UL
+
+#define IWM_INFRASTRUCTURE_IBSS 0UL
+#define IWM_INFRASTRUCTURE_BSS  1UL
+#define IWM_INFRASTRUCTURE_AUTO 2UL
+
+#define IWM_NDIS_STATUS_NOT_SUPPORTED     0xC00000BBUL
+#define IWM_NDIS_STATUS_ADAPTER_NOT_READY 0xC0010011UL
 
 struct IWM_PACKED iwm_ndis_ssid {
     uint32_t length;
@@ -57,4 +66,5 @@ int iwm_genmac_oid_set(struct iwm_adapter *adapter,
                        struct iwm_oid_request *request);
 
 #endif
+
 

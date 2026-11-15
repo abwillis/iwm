@@ -45,3 +45,4 @@ void iwm_os2_bottom_half(struct iwm_adapter *adapter)
     /* Milestone hook: drain RX, complete TX and process firmware notices. */
 }
 
+

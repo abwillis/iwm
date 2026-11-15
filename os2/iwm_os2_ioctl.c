@@ -85,9 +85,12 @@ int iwm_os2_ioctl_dispatch(struct iwm_adapter *a,
     oid.ndis_status = 0;
     rc = r->function == GENMAC_WRAPPER_OID_GET ?
          iwm_genmac_oid_get(a, &oid) : iwm_genmac_oid_set(a, &oid);
+    if (rc == IWM_ESTATE && oid.ndis_status == 0)
+        oid.ndis_status = IWM_NDIS_STATUS_ADAPTER_NOT_READY;
     r->parameters[2] = oid.bytes_done;
     r->parameters[3] = oid.ndis_status;
     r->data_actual = oid.bytes_done;
     return rc;
 }
+
 

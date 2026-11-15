@@ -305,6 +305,15 @@ void iwm_d32_ioctl(REQPACKET *prp)
                     (int)g_ad.firmware.state, (ULONG)g_ad.firmware.accepted);
     }
 
+    /* A syntactically valid GenMAC request reports protocol failures through
+     * parameters[3].  Returning an OS/2 request-packet error as well hides the
+     * NDIS status from XWLAN and turns ADAPTER_NOT_READY into a generic IOCTL
+     * failure. */
+    if (cat == GENMAC_CATEGORY && req.parameters[3] != 0) {
+        prp->usStatus = RPDONE;
+        return;
+    }
+
     switch (rc) {
     case IWM_OK:
         prp->usStatus = RPDONE;
@@ -324,3 +333,4 @@ void iwm_d32_ioctl(REQPACKET *prp)
         break;
     }
 }
+

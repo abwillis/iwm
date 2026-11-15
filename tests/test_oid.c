@@ -22,11 +22,36 @@ static int set_oid(struct iwm_adapter *a, uint32_t id)
     return iwm_genmac_oid_set(a, &r);
 }
 
+static int set_oid_value(struct iwm_adapter *a, uint32_t id, uint32_t value,
+                         struct iwm_oid_request *out)
+{
+    struct iwm_oid_request r;
+    memset(&r, 0, sizeof(r));
+    r.oid = id;
+    r.data = &value;
+    r.data_length = sizeof(value);
+    if (out)
+        *out = r;
+    return iwm_genmac_oid_set(a, out ? out : &r);
+}
+
+static int get_oid_u32(struct iwm_adapter *a, uint32_t id, uint32_t *value)
+{
+    struct iwm_oid_request r;
+    memset(&r, 0, sizeof(r));
+    r.oid = id;
+    r.data = value;
+    r.data_length = sizeof(*value);
+    return iwm_genmac_oid_get(a, &r);
+}
+
 int main(void)
 {
     struct iwm_adapter a;
     struct iwm_os_ops ops;
     struct iwm_ndis_context n;
+    struct iwm_oid_request r;
+    uint32_t value;
     int cookie = 0;
 
     memset(&ops, 0, sizeof(ops));
@@ -45,6 +70,22 @@ int main(void)
     assert(set_oid(&a, OID_802_11_REMOVE_KEY) == IWM_ENOTSUP);
     assert(set_oid(&a, OID_802_11_INFRASTRUCTURE_MODE) == IWM_OK);
 
+    value = 99;
+    assert(get_oid_u32(&a, OID_GEN_HARDWARE_STATUS, &value) == IWM_OK);
+    assert(value == IWM_NDIS_HARDWARE_READY);
+    value = 99;
+    assert(get_oid_u32(&a, OID_802_11_INFRASTRUCTURE_MODE, &value) == IWM_OK);
+    assert(value == IWM_INFRASTRUCTURE_IBSS);
+    memset(&r, 0, sizeof(r));
+    assert(set_oid_value(&a, OID_802_11_INFRASTRUCTURE_MODE,
+                         IWM_INFRASTRUCTURE_BSS, &r) == IWM_OK);
+    assert(r.bytes_done == sizeof(value));
+    value = 99;
+    assert(get_oid_u32(&a, OID_802_11_INFRASTRUCTURE_MODE, &value) == IWM_OK);
+    assert(value == IWM_INFRASTRUCTURE_BSS);
+    assert(set_oid_value(&a, OID_802_11_INFRASTRUCTURE_MODE, 3, NULL) ==
+           IWM_EINVAL);
+
     /* TX is gated on association and still unimplemented after it. */
     memset(&n, 0, sizeof(n));
     n.adapter = &a;
@@ -55,4 +96,5 @@ int main(void)
     puts("oid tests passed");
     return 0;
 }
+
 

@@ -19,6 +19,12 @@ static void StratInit(REQPACKET *prp)
     dprintf(0, "iwm: M1 probe build, args '%s'\n",
             Far16ToFlat(prp->init_in.szArgs));
 
+    rc = iwm_d32_rm_create_driver();
+    if (rc != IWM_OK) {
+        dprintf(0, "iwm: RM driver registration failed %d\n", rc);
+        prp->usStatus = RPDONE;
+        return;
+    }
     rc = iwm_d32_m1();
     iwm_m1_rc = (unsigned long)rc;
     dprintf(0, "iwm: M1 result %d\n", rc);
@@ -26,6 +32,8 @@ static void StratInit(REQPACKET *prp)
     if (rc == 0) {
         rc = iwm_d32_fw_attach();
         dprintf(0, "iwm: fw attach %d\n", rc);
+    } else {
+        iwm_d32_rm_destroy(1);
     }
 
     /* Stay loaded whatever the result, so the log can be read through
@@ -75,7 +83,7 @@ void StrategyHandler(REQPACKET *prp)
         StratRead(prp);
         break;
     case STRATEGY_GENIOCTL:
-        /* 0x91 firmware loader only; GenMAC (0x99) is not served yet. */
+        /* Firmware loader (0x91) and XWLAN GenMAC wrapper (0x99). */
         iwm_d32_ioctl(prp);
         break;
     case STRATEGY_DEINSTALL:
@@ -87,4 +95,5 @@ void StrategyHandler(REQPACKET *prp)
         break;
     }
 }
+
 

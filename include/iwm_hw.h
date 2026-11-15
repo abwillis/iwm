@@ -65,6 +65,7 @@ struct iwm_adapter {
     uint32_t link_speed_kbps;
     int32_t rssi_dbm;
     uint32_t status_generation;
+    uint32_t infrastructure_mode;
     uint8_t connected;
     uint8_t mac[6];
     uint8_t bssid[6];
@@ -99,4 +100,5 @@ int iwm_adapter_set_fw_store(struct iwm_adapter *adapter,
                              struct iwm_blob *store);
 
 #endif
+
 

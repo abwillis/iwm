@@ -43,3 +43,4 @@ const struct iwm_device_config *iwm_device_at(size_t index)
     return index < IWM_ARRAY_SIZE(devices) ? &devices[index] : NULL;
 }
 
+

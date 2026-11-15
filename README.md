@@ -2,7 +2,7 @@
 
 Experimental source scaffold for a native OS/2/ArcaOS NDIS Wi-Fi driver for the Intel `iwm` device families, with the Intel Dual Band Wireless-AC 9560 as the primary target.
 
-**This remains a development driver, not a complete Wi-Fi driver.** It identifies the OS/2 boundaries, implements a tested device table, firmware-transfer protocol, core state machines, initial XWLAN/GenMAC OID surface, and the 8000/9000 FH service-channel section loader. The loader now DMA-copies INIT sections and records the early ALIVE interrupt, but deliberately keeps firmware in `LOADING` until an RX notification queue parses the ALIVE command. Command/notification rings, NVM/PHY commands, runtime transition, scan completion, association, key installation and NDIS packet I/O remain milestones.
+**This remains a development driver, not a complete Wi-Fi driver.** It identifies the OS/2 boundaries, implements a tested device table, firmware-transfer protocol, core state machines, the XWLAN/GenMAC discovery and status surface observed in the supplied trace, OS/2 Resource Manager registration, and the 8000/9000 FH service-channel section loader. The loader now DMA-copies INIT sections and records the early ALIVE interrupt, but deliberately keeps firmware in `LOADING` until an RX notification queue parses the ALIVE command. Command/notification rings, NVM/PHY commands, runtime transition, scan completion, association, key installation and NDIS packet I/O remain milestones.
 
 ## Primary 9560 target
 
@@ -20,7 +20,7 @@ The project also includes IDs/configuration aliases for the 3160, 3165, 3168, 72
 
 ## XWLAN and wpa_supplicant contract
 
-The device is intended to expose `WRND32$`, matching the GenMAC DIM used by XWLAN. Category `0x99`, functions `0x40/0x41`, carry OID GET/SET requests. The starter implements discovery/status OIDs and scaffolds SSID, scan, authentication, encryption, disassociation and key OIDs.
+The device exposes `WRND32$`, matching the GenMAC DIM used by XWLAN. Category `0x99`, functions `0x40/0x41`, carry OID GET/SET requests. The driver implements the private wrapper discovery OIDs plus hardware status, infrastructure mode, SSID/BSSID/RSSI, power mode, media state and link speed. Scan, authentication, encryption, disassociation and key OIDs remain gated by their hardware milestones.
 
 XWLAN starts and controls the OS/2 `wpa_supplicant`. EAPOL frames must pass through the normal NDIS transmit/receive path. WPA2 cannot work until `OID_802_11_ADD_KEY`/`REMOVE_KEY`, station commands and hardware crypto setup are completed.
 
@@ -63,4 +63,7 @@ This does not build an OS/2 driver. It verifies the portable core before target 
 9. Add scan commands/results, then association and WPA2 keys, then packet I/O.
 
 See `docs/ROADMAP.md` for acceptance tests and `docs/REFERENCE_MAP.md` for exact source paths used.
+The supplied XWLAN trace analysis and Resource Manager lifecycle are documented
+in `docs/XWLAN_RESOURCE_MANAGER.md`.
+
 

@@ -12,6 +12,8 @@
 
 - Detect a target adapter without touching unsupported hardware.
 - Map BAR0 and read a stable hardware revision.
+- Register the network driver, PCI adapter, BAR0, and allocated MSI vector
+  with the OS/2 Resource Manager.
 - Allocate/free aligned physical blocks repeatedly without leaks.
 - Register and release the IRQ cleanly.
 - Verify operation on uniprocessor and SMP kernels with the ISR disabled, then enabled.
@@ -30,6 +32,10 @@
 - Implement BSSID list scan and return `NDIS_802_11_BSSID_LIST_EX` records.
 - Return SSID, BSSID, RSSI, media state and link speed.
 - XWLAN lists the adapter and visible access points without traps or leaks.
+
+The XWLAN discovery/status bridge now covers hardware status and persisted
+infrastructure mode in addition to the private wrapper OIDs.  Scan remains
+gated until the RX notification queue validates firmware ALIVE.
 
 ## M4 — open association
 
@@ -56,4 +62,5 @@
 ## Required diagnostics
 
 Keep a fixed-size event ring with sequence number, timestamp/tick, state, CSR interrupt cause, FH cause, command ID, queue/index and status. Provide a read-only IOCTL to copy a bounded snapshot to ring 3. Never format long strings in the ISR.
+
 

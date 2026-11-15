@@ -5,6 +5,7 @@
 #include <string.h>
 #endif
 #include "iwm_hw.h"
+#include "iwm_genmac.h"
 
 #define CSR_HW_IF_CONFIG_REG 0x000UL
 #define CSR_INT              0x008UL
@@ -66,6 +67,7 @@ void iwm_adapter_init(struct iwm_adapter *a,
     a->os_context = context;
     a->state = IWM_ADAPTER_DOWN;
     a->rssi_dbm = -200;
+    a->infrastructure_mode = IWM_INFRASTRUCTURE_BSS;
     iwm_fw_session_init(&a->firmware, NULL);
 }
 
@@ -204,4 +206,5 @@ int iwm_adapter_fw_alive(struct iwm_adapter *a)
     ++a->status_generation;
     return IWM_OK;
 }
+
 
