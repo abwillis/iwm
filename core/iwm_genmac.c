@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
+/* Ring 0: Dev32lib.h (forced in with -fi) declares memcpy/memset and the
+ * miniddk string.h conflicts with it. */
+#if !defined(IWM_RING0)
 #include <string.h>
+#endif
 #include "iwm_genmac.h"
 
 static int put(struct iwm_oid_request *r, const void *src, uint32_t length)

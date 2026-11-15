@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
+/* Ring 0: Dev32lib.h (forced in with -fi) declares memcpy/memset and the
+ * miniddk string.h conflicts with it. */
+#if !defined(IWM_RING0)
 #include <string.h>
+#endif
 #include "iwm_os2.h"
 
 static int copy_out(struct iwm_os2_ioctl *r, const void *p, uint32_t n)

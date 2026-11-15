@@ -63,6 +63,30 @@ struct iwm_fw_section {
     uint8_t flags;
 };
 
+/* Why iwm_fw_image_parse() stopped. Kept in the image so the driver can log
+ * the exact record that was refused instead of a bare error code. */
+enum iwm_fw_parse_reason {
+    IWM_FWP_OK = 0,
+    IWM_FWP_SHORT,       /* image shorter than the 88-byte header */
+    IWM_FWP_HEADER,      /* leading zero word or magic is wrong */
+    IWM_FWP_READ,        /* the firmware store refused a read */
+    IWM_FWP_TLV_HEADER,  /* fewer than 8 bytes left for a TLV header */
+    IWM_FWP_TLV_LENGTH,  /* TLV length runs past the end of the image */
+    IWM_FWP_CPU_LENGTH,  /* NUM_OF_CPU record is not 4 bytes */
+    IWM_FWP_CPU_COUNT,   /* NUM_OF_CPU is not 1 or 2 */
+    IWM_FWP_SEC_SHORT,   /* section record shorter than its 4-byte address */
+    IWM_FWP_SEC_COUNT,   /* more than IWM_FW_MAX_SECTIONS sections */
+    IWM_FWP_SEC_RANGE,   /* load address plus length wraps past 4 GiB */
+    IWM_FWP_NO_RUNTIME   /* parsed cleanly but holds no runtime section */
+};
+
+struct iwm_fw_parse_diag {
+    uint32_t pos;        /* offset of the TLV header being examined */
+    uint32_t type;       /* its type word */
+    uint32_t length;     /* its length word */
+    uint16_t reason;     /* enum iwm_fw_parse_reason */
+};
+
 struct iwm_fw_image {
     uint32_t version;
     uint32_t build;
@@ -70,6 +94,7 @@ struct iwm_fw_image {
     uint16_t section_count;
     uint16_t runtime_count;
     uint16_t init_count;
+    struct iwm_fw_parse_diag diag;
     struct iwm_fw_section section[IWM_FW_MAX_SECTIONS];
 };
 

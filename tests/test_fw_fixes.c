@@ -120,6 +120,7 @@ int main(void)
     io.function = IWM_IOCTL_FW_COMMIT; io.data = NULL; io.data_length = 0;
     assert(iwm_os2_ioctl_dispatch(&a, &io) == IWM_EFORMAT);
     assert(a.firmware.state == IWM_FW_FAILED);
+    assert(a.firmware.catalog.diag.reason == IWM_FWP_NO_RUNTIME);
 
     assert(iwm_adapter_set_fw_store(&a, NULL) == IWM_OK);
     iwm_blob_reset(&store);

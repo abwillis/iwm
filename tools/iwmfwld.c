@@ -100,7 +100,7 @@ static int load_firmware(const char *device, const char *path)
 
 int main(int argc, char **argv)
 {
-    const char *device = "\\\\DEV\\WRND32$";
+    const char *device = "\\DEV\\WRND32$";
     if (argc < 2 || argc > 3) {
         fprintf(stderr, "usage: iwmfwld firmware.ucode [device]\n");
         return 1;

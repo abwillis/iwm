@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
+/* Ring 0: Dev32lib.h (forced in with -fi) declares memcpy/memset and the
+ * miniddk string.h conflicts with it. */
+#if !defined(IWM_RING0)
 #include <string.h>
+#endif
 #include "iwm_fw_proto.h"
 
 void iwm_fw_session_init(struct iwm_fw_session *s, struct iwm_blob *store)
@@ -84,8 +88,10 @@ int iwm_fw_commit(struct iwm_fw_session *s)
     }
     if (s->store) {
         int rc = iwm_fw_image_parse(s->store, &s->catalog);
-        if (rc == IWM_OK && s->catalog.runtime_count == 0)
+        if (rc == IWM_OK && s->catalog.runtime_count == 0) {
+            s->catalog.diag.reason = IWM_FWP_NO_RUNTIME;
             rc = IWM_EFORMAT;
+        }
         if (rc != IWM_OK) {
             s->last_error = rc;
             s->state = IWM_FW_FAILED;

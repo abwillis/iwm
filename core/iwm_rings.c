@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
+/* Ring 0: Dev32lib.h (forced in with -fi) declares memcpy/memset and the
+ * miniddk string.h conflicts with it. */
+#if !defined(IWM_RING0)
 #include <string.h>
+#endif
 #include "iwm_hw.h"
 
 int iwm_plan_rings(const struct iwm_adapter *a, struct iwm_ring_plan *plan)

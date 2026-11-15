@@ -69,14 +69,46 @@ int main(void)
     put_le32(tmp + len - 8, 0xFFFFFFFEUL);
     assert(parse_bytes(&b, tmp, len, &fw) == IWM_EOVERFLOW);
 
-    /* Separator carrying payload is malformed. */
+    /* A separator is recognised by its address word alone. Real images carry
+     * a payload after it, so a separator with data must parse and must not
+     * count as an init or runtime section. */
     memcpy(tmp, img, len);
     put_le32(tmp + 116 + 8, IWM_UCODE_SECTION_PAGING);
     put_le32(tmp + 116 + 4, 4);
     assert(parse_bytes(&b, tmp, len, &fw) == IWM_OK);
     memcpy(tmp, img, len);
     put_le32(tmp + IWM_UCODE_HEADER_SIZE + 12 + 8, IWM_UCODE_SECTION_PAGING);
+    assert(parse_bytes(&b, tmp, len, &fw) == IWM_OK);
+    assert(fw.section_count == 3 && fw.init_count == 0 &&
+           fw.runtime_count == 1);
+    assert(fw.section[0].flags & IWM_FW_SEC_SEPARATOR);
+    assert(fw.section[0].data_length == 4);
+
+    /* The first INIT record has a four-byte payload; give the CPU1/CPU2
+     * separator one too, as the shipped 9000-family images do. */
+    memcpy(tmp, img, len);
+    put_le32(tmp + 116 + 4, 8);
+    memmove(tmp + 116 + 16, tmp + 116 + 12, len - (116 + 12));
+    put_le32(tmp + 116 + 12, 0);
+    assert(parse_bytes(&b, tmp, len + 4, &fw) == IWM_OK);
+    assert(fw.section_count == 3 && fw.init_count == 1 &&
+           fw.runtime_count == 1);
+    assert(fw.section[1].flags & IWM_FW_SEC_SEPARATOR);
+    assert(fw.section[1].data_length == 4);
+    assert(fw.section[2].dst_addr == 0x00800000UL);
+
+    /* Failures name the record they stopped on. */
+    memcpy(tmp, img, len);
+    put_le32(tmp + IWM_UCODE_HEADER_SIZE + 8, 3);
     assert(parse_bytes(&b, tmp, len, &fw) == IWM_EFORMAT);
+    assert(fw.diag.reason == IWM_FWP_CPU_COUNT);
+    assert(fw.diag.pos == IWM_UCODE_HEADER_SIZE);
+    assert(fw.diag.type == IWM_UCODE_TLV_NUM_OF_CPU);
+    memcpy(tmp, img, len);
+    put_le32(tmp + IWM_UCODE_HEADER_SIZE + 4, 0xFFFFFFFFUL);
+    assert(parse_bytes(&b, tmp, len, &fw) == IWM_EFORMAT);
+    assert(fw.diag.reason == IWM_FWP_TLV_LENGTH);
+    assert(fw.diag.length == 0xFFFFFFFFUL);
 
     /* Trailing bytes too short for a TLV header. */
     memcpy(tmp, img, len);

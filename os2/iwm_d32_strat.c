@@ -7,7 +7,8 @@
 /* XWLAN and IWMFWLD.EXE open \DEV\WRND32$. Only one driver may own it. */
 char cDevName[] = "WRND32$";
 
-static int g_opened;
+static int g_opened;   /* open count: XWLAN and IWMFWLD.EXE both open this device */
+static int g_status_pending;   /* READ returns one status line per open */
 
 static void StratInit(REQPACKET *prp)
 {
@@ -23,6 +24,11 @@ static void StratInit(REQPACKET *prp)
     iwm_m1_rc = (unsigned long)rc;
     dprintf(0, "iwm: M1 result %d\n", rc);
 
+    if (rc == 0) {
+        rc = iwm_d32_fw_attach();
+        dprintf(0, "iwm: fw attach %d\n", rc);
+    }
+
     /* Stay loaded whatever the result, so the log can be read through
      * \DEV\WRND32$ and a hooked MSI is never left without its handler. */
     prp->usStatus = RPDONE;
@@ -37,8 +43,14 @@ static void StratRead(REQPACKET *prp)
         prp->usStatus |= RPERR_GENERAL;
         return;
     }
-    dprintf(0, "iwm: rc=%lu hwrev=%08lx irq=%lu ints=%lu\n",
-            iwm_m1_rc, iwm_m1_hwrev, iwm_m1_irq, iwm_m1_irq_count);
+    /* The status line is written once per open. Writing it on every read
+     * refills the buffer that dCopyToUser() drains, so a reader such as
+     * "type wrnd32$" never sees the end of the data. */
+    if (g_status_pending) {
+        g_status_pending = 0;
+        dprintf(0, "iwm: rc=%lu hwrev=%08lx irq=%lu ints=%lu\n",
+                iwm_m1_rc, iwm_m1_hwrev, iwm_m1_irq, iwm_m1_irq_count);
+    }
     prp->io.usCount = (USHORT)dCopyToUser(lin, prp->io.usCount);
 }
 
@@ -51,20 +63,21 @@ void StrategyHandler(REQPACKET *prp)
         StratInit(prp);
         break;
     case STRATEGY_OPEN:
-        if (g_opened)
-            prp->usStatus |= RPERR_DEVINUSE;
-        else
-            g_opened = 1;
+        ++g_opened;
+        g_status_pending = 1;
+        dprintf(0, "iwm: open, count %d\n", g_opened);
         break;
     case STRATEGY_CLOSE:
-        g_opened = 0;
+        if (g_opened > 0)
+            --g_opened;
+        dprintf(0, "iwm: close, count %d\n", g_opened);
         break;
     case STRATEGY_READ:
         StratRead(prp);
         break;
     case STRATEGY_GENIOCTL:
-        /* M1: no firmware (0x91) or GenMAC (0x99) service yet. */
-        prp->usStatus = RPDONE | RPERR | RPERR_BADCOMMAND;
+        /* 0x91 firmware loader only; GenMAC (0x99) is not served yet. */
+        iwm_d32_ioctl(prp);
         break;
     case STRATEGY_DEINSTALL:
     case STRATEGY_INITCOMPLETE:

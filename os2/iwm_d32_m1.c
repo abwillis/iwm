@@ -25,6 +25,11 @@ static ULONG g_irq;
 static volatile ULONG g_last_cause;
 static SpinLock_t g_lock;
 
+volatile unsigned long *iwm_d32_csr(void)
+{
+    return g_csr;
+}
+
 #pragma aux iwm_msi_isr parm [eax]
 static int iwm_msi_isr(ULONG data)
 {

@@ -1,6 +1,6 @@
 # makefile.wat -- Open Watcom wmake build for the OS/2 Intel Wi-Fi driver.
-#   wmake -f makefile.wat            ring-3 loader + M1 probe driver
-#   wmake -f makefile.wat probe      IWM32.SYS (M1 probe build)
+#   wmake -f makefile.wat            ring-3 loader + driver (M1 probe + fw loader)
+#   wmake -f makefile.wat probe      IWM32.OS2 (M1 probe + firmware loader)
 #   wmake -f makefile.wat ring3      IWMFWLD.EXE
 #   wmake -f makefile.wat paths      show resolved paths
 # Commands are indented with spaces; wmake accepts any leading whitespace.
@@ -49,7 +49,7 @@ DRV32LIB  = $(DRV32_LIB)\Drv32.lib
 # Output
 #----------------------------------------------------------------------
 DRVNAME = IWM32
-DRIVER  = $(DRVNAME).SYS
+DRIVER  = $(DRVNAME).OS2
 LOADER  = IWMFWLD.EXE
 
 CC   = wcc386
@@ -67,10 +67,12 @@ INC_R3 = -i=include -i=$(OS2TK_H) -i=$(WATCOM_H)
 # SS != DS, intrinsics for memset/memcpy. Calling conventions come
 # from the Drv32 headers (__syscall / #pragma aux), so no -ec* switch.
 # Confirm against the Drv32 sample build before relying on them.
+# -fi=Dev32lib.h: ring-0 sources get size_t/offsetof from Dev32lib.h
+# (the miniddk and Watcom stddef.h are not used), so it is forced in.
 #----------------------------------------------------------------------
-CF_COMMON = -q -bt=os2 -zq -wx -we -ei -6s -obilmr -d__OS2__
-CF_R0     = $(CF_COMMON) -mf -s -ze -zfp -zgp -ms -wx -zp4 -za99 -zl -zls -dIWM_RING0 $(INC_R0)
-CF_R3     = $(CF_COMMON) -mf -ox $(INC_R3)
+CF_COMMON = -q -bt=os2 -zq -wx -6s  -zp4 -d__OS2__
+CF_R0     = $(CF_COMMON) -d1 -6 -obilmr -s -zp=1 -zu -zl -ei -zff -zgf -dIWM_RING0 -fi=Dev32lib.h $(INC_R0)
+CF_R3     = $(CF_COMMON) -bm -obilmr -we -ei -zm -ox $(INC_R3)
 
 !ifdef DEBUG
 CF_R0 += -d2 -dIWM_DEBUG
@@ -80,9 +82,18 @@ CF_R3 += -d2
 #----------------------------------------------------------------------
 # Objects
 #  PROBE_OBJS: everything the M1 driver needs, nothing more.
+#  FW_OBJS:    firmware staging + category 0x91 IOCTL service (no hardware
+#              load path yet; transport and ndis are not needed for this).
+#  DRIVER_OBJS: what IWM32.OS2 is linked from.
 #  CORE_OBJS:  full portable core, linked from M2 onward.
 #----------------------------------------------------------------------
 PROBE_OBJS = r0_strat.obj r0_m1.obj r0_bar.obj
+
+FW_OBJS    = r0_fw.obj r0_ioctl.obj r0_devices.obj r0_crc32.obj &
+             r0_fw_stream.obj r0_fw_image.obj r0_hw.obj r0_rings.obj &
+             r0_genmac.obj
+
+DRIVER_OBJS = $(PROBE_OBJS) $(FW_OBJS)
 
 CORE_OBJS  = r0_devices.obj r0_crc32.obj r0_fw_stream.obj r0_fw_image.obj &
              r0_transport.obj r0_hw.obj r0_rings.obj r0_genmac.obj &
@@ -122,6 +133,12 @@ r0_m1.obj: os2\iwm_d32_m1.c os2\iwm_d32.h include\iwm_bar.h .AUTODEPEND
 r0_bar.obj: core\iwm_bar.c include\iwm_bar.h .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ core\iwm_bar.c
 
+r0_fw.obj: os2\iwm_d32_fw.c os2\iwm_d32.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ os2\iwm_d32_fw.c
+
+r0_ioctl.obj: os2\iwm_os2_ioctl.c .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ os2\iwm_os2_ioctl.c
+
 r0_devices.obj: core\iwm_devices.c .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ core\iwm_devices.c
 r0_crc32.obj: core\iwm_crc32.c .AUTODEPEND
@@ -159,7 +176,7 @@ $(LOADER): $(R3_OBJS)
     $(LINK) name $@ system os2v2 option quiet &
         file { $(R3_OBJS) } libpath $(OS2TK_LIB)
 
-$(DRIVER): $(PROBE_OBJS) $(DRVNAME).lnk
+$(DRIVER): $(DRIVER_OBJS) $(DRVNAME).lnk
     $(LINK) @$(DRVNAME).lnk
 
 $(DRVNAME).lnk: makefile.wat
@@ -167,14 +184,16 @@ $(DRVNAME).lnk: makefile.wat
     @%append $@ name $(DRIVER)
     @%append $@ format os2 lx physdevice
     @%append $@ option mixed1632,nostub,align=4
-    @%append $@ option verbose,caseexact,eliminate sort global
-    @%append $@ option stack=0
+    @%append $@ option verbose,caseexact,eliminate,nodefaultlibs
     @%append $@ option quiet, map=$(DRVNAME).map, internalrelocs
-    @%append $@ option description 'Intel Wireless-AC 9560 OS/2 driver (M1 probe)'
+    @%append $@ option description 'Intel Wireless-AC 9560 OS/2 driver (M1 probe + fw loader)'
+    @%append $@ segment _TEXT PRELOAD CONFORMING IOPL DYNAMIC
+    @%append $@ segment TYPE DATA SHARED
 !ifdef DEBUG
     @%append $@ debug all
 !endif
-    @for %f in ($(PROBE_OBJS)) do @%append $@ file %f
+    @%append $@ file $(DRV32LIB)(header)
+    @for %f in ($(DRIVER_OBJS)) do @%append $@ file %f
     @%append $@ library $(DRV32LIB)
     @%append $@ library $(MINIDDK)\base32\lib\kee.lib
     @%append $@ libpath $(OS2TK_LIB)
