@@ -101,15 +101,15 @@ static void mock_delay(void *p, uint32_t usec)
 static int mock_dma_alloc(void *p, uint32_t size, uint32_t alignment,
                           struct iwm_dma_block *b)
 {
-    uintptr_t raw_addr, aligned;
+    size_t raw_addr, aligned;
     void *raw;
 
     (void)p;
     raw = malloc(size + alignment - 1U);
     if (!raw)
         return IWM_ENOMEM;
-    raw_addr = (uintptr_t)raw;
-    aligned = (raw_addr + alignment - 1U) & ~((uintptr_t)alignment - 1U);
+    raw_addr = (size_t)raw;
+    aligned = (raw_addr + alignment - 1U) & ~((size_t)alignment - 1U);
     memset(b, 0, sizeof(*b));
     b->alloc_vaddr = raw;
     b->alloc_size = size + alignment - 1U;

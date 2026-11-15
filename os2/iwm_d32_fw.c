@@ -235,24 +235,26 @@ static void log_commit(int rc)
 
 void iwm_d32_ioctl(REQPACKET *prp)
 {
-    struct iwm_os2_ioctl req;
+    static struct iwm_os2_ioctl req;   /* static: see W112 note */
     void *data = 0;
+    ULONG *parm = 0;
+    UCHAR cat = prp->ioctl.bCategory;
     int rc;
 
-    if (prp->ioctl.bCategory != IWM_IOCTL_CATEGORY) {
+    if (cat != IWM_IOCTL_CATEGORY && cat != GENMAC_CATEGORY) {
         prp->usStatus = RPDONE | RPERR_BADCOMMAND;
         return;
     }
     if (!g_attached) {
-        dprintf(0, "iwm: ioctl before attach\n");
+        dprintf(0, "iwm: ioctl cat %x before attach\n", (int)cat);
         prp->usStatus = RPDONE | RPERR_NOTREADY;
         return;
     }
     memset(&req, 0, sizeof(req));
-    req.category = prp->ioctl.bCategory;
+    req.category = cat;
     req.function = prp->ioctl.bFunction;
+
     if (prp->ioctl.usDataLen) {
-        /* pvData is a 16:16 pointer into the caller's address space. */
         data = Far16ToFlat(prp->ioctl.pvData);
         if (!data) {
             prp->usStatus = RPDONE | RPERR_PARAMETER;
@@ -262,20 +264,46 @@ void iwm_d32_ioctl(REQPACKET *prp)
     req.data = data;
     req.data_length = prp->ioctl.usDataLen;
 
-    rc = iwm_os2_ioctl_dispatch(&g_ad, &req);
-
-    if (req.function == IWM_IOCTL_FW_COMMIT) {
-        /* Log the catalog before a hardware error can abort/reset the store. */
-        log_commit(rc);
-        if (rc == IWM_OK && g_ad.firmware.state == IWM_FW_LOADING)
-            rc = start_init_firmware();
+    /* GenMAC: OID in parameters[0]; bytes done and NDIS status come back
+     * in parameters[2] and [3]. */
+    if (cat == GENMAC_CATEGORY) {
+        if (prp->ioctl.usParmLen < sizeof(req.parameters)) {
+            dprintf(0, "iwm: genmac fn %x parm len %u too short\n",
+                    (int)req.function, (unsigned)prp->ioctl.usParmLen);
+            prp->usStatus = RPDONE | RPERR_PARAMETER;
+            return;
+        }
+        parm = (ULONG *)Far16ToFlat(prp->ioctl.pvParm);
+        if (!parm) {
+            prp->usStatus = RPDONE | RPERR_PARAMETER;
+            return;
+        }
+        memcpy(req.parameters, parm, sizeof(req.parameters));
     }
 
-    /* One line per DATA chunk would flood the debug buffer. */
-    if (req.function != IWM_IOCTL_FW_DATA || rc != IWM_OK)
-        dprintf(0, "iwm: fw fn %d len %lu rc %d state %d accepted %lu\n",
-                (int)req.function, (ULONG)req.data_length, rc,
-                (int)g_ad.firmware.state, (ULONG)g_ad.firmware.accepted);
+    rc = iwm_os2_ioctl_dispatch(&g_ad, &req);
+
+    if (parm)
+        memcpy(parm, req.parameters, sizeof(req.parameters));
+    if (req.data_actual && req.data_actual <= prp->ioctl.usDataLen)
+        prp->ioctl.usDataLen = (USHORT)req.data_actual;
+
+    if (cat == GENMAC_CATEGORY) {
+        dprintf(0, "iwm: genmac fn %x oid %08lx len %lu rc %d done %lu st %08lx\n",
+                (int)req.function, (ULONG)req.parameters[0],
+                (ULONG)req.data_length, rc, (ULONG)req.parameters[2],
+                (ULONG)req.parameters[3]);
+    } else {
+        if (req.function == IWM_IOCTL_FW_COMMIT) {
+            log_commit(rc);
+            if (rc == IWM_OK && g_ad.firmware.state == IWM_FW_LOADING)
+                rc = start_init_firmware();
+        }
+        if (req.function != IWM_IOCTL_FW_DATA || rc != IWM_OK)
+            dprintf(0, "iwm: fw fn %d len %lu rc %d state %d accepted %lu\n",
+                    (int)req.function, (ULONG)req.data_length, rc,
+                    (int)g_ad.firmware.state, (ULONG)g_ad.firmware.accepted);
+    }
 
     switch (rc) {
     case IWM_OK:
@@ -286,11 +314,13 @@ void iwm_d32_ioctl(REQPACKET *prp)
         prp->usStatus = RPDONE | RPERR_PARAMETER;
         break;
     case IWM_ENOTSUP:
-        prp->usStatus = RPDONE | RPERR_BADCOMMAND;
+        /* An unsupported OID is a normal GenMAC answer: the NDIS status in
+         * parameters[3] says NOT_SUPPORTED, so let XWLAN read it. */
+        prp->usStatus = cat == GENMAC_CATEGORY ? RPDONE
+                                               : (RPDONE | RPERR_BADCOMMAND);
         break;
     default:
         prp->usStatus = RPDONE | RPERR_GENERAL;
         break;
     }
 }
-

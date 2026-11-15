@@ -1,0 +1,195 @@
+#====================================================================
+# Unit tests, built as OS/2 ring-3 programs (no driver, no hardware).
+#   wmake -f makefile.wat test          build, run and summarise every test
+#   wmake -f makefile.wat testbuild     build the tests only
+#   wmake -f makefile.wat run_test_bar  build and run one test
+#   wmake -f makefile.wat test_bar.exe  build one test
+#   wmake -f makefile.wat testclean     delete test programs, logs, results
+# A test that fails to compile or link is reported as NOT BUILT and the
+# remaining tests still run. Each test writes test_NAME.log.
+# Insert this block before the Housekeeping section. It uses WATCOM, CC,
+# LINK and OS2TK_LIB from earlier in the file.
+# Never define NDEBUG for these: the tests call the code under test
+# inside assert().
+#====================================================================
+CC = wcc386
+LINK = wlink
+OS2TK_LIB = E:\OS2TK45\LIB
+INC_T = -i=include -i=tests -i=$(WATCOM)\h
+CF_T  = -q -bt=os2 -zq -w3 -6s -zp4 -d__OS2__ -bm -od -d1 $(INC_T)
+TCC   = $(CC) $(CF_T)
+TCORE_OBJS = t_devices.obj t_crc32.obj t_fw_stream.obj t_fw_image.obj &
+              t_fw_loader.obj t_transport.obj t_bar.obj t_hw.obj &
+              t_rings.obj t_genmac.obj t_ndis.obj t_os2ioctl.obj t_os2adapter.obj
+TEST_EXES = test_core.exe test_fw_fixes.exe test_fw_image.exe test_transport.exe &
+            test_oid.exe test_os2_adapter.exe test_bar.exe test_fw_loader.exe
+RUN_TESTS = run_test_core run_test_fw_fixes run_test_fw_image run_test_transport &
+            run_test_oid run_test_os2_adapter run_test_bar run_test_fw_loader
+testbuild: .SYMBOLIC $(TEST_EXES)
+testinit: .SYMBOLIC
+    @if exist testpass.txt del testpass.txt
+    @if exist testfail.txt del testfail.txt
+    @if exist testnobld.txt del testnobld.txt
+test: .SYMBOLIC testinit $(RUN_TESTS)
+    @echo ===== test summary =====
+    @echo PASSED:
+    @if exist testpass.txt type testpass.txt
+    @if not exist testpass.txt echo   (none)
+    @echo FAILED (read test_NAME.log):
+    @if exist testfail.txt type testfail.txt
+    @if not exist testfail.txt echo   (none)
+    @echo NOT BUILT (compiler or linker errors are shown above):
+    @if exist testnobld.txt type testnobld.txt
+    @if not exist testnobld.txt echo   (none)
+    @if exist testfail.txt echo RESULT: some tests FAILED
+    @if exist testnobld.txt echo RESULT: some tests did NOT BUILD
+    @if not exist testfail.txt if not exist testnobld.txt echo RESULT: ALL TESTS PASSED
+#--------------------------------------------------------------------
+# Portable core and OS/2 glue, compiled for ring 3 (no IWM_RING0)
+#--------------------------------------------------------------------
+t_devices.obj: core\iwm_devices.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_devices.c
+t_crc32.obj: core\iwm_crc32.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_crc32.c
+t_fw_stream.obj: core\iwm_fw_stream.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_fw_stream.c
+t_fw_image.obj: core\iwm_fw_image.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_fw_image.c
+t_fw_loader.obj: core\iwm_fw_loader.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_fw_loader.c
+t_transport.obj: core\iwm_transport.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_transport.c
+t_bar.obj: core\iwm_bar.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_bar.c
+t_hw.obj: core\iwm_hw.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_hw.c
+t_rings.obj: core\iwm_rings.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_rings.c
+t_genmac.obj: core\iwm_genmac.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_genmac.c
+t_ndis.obj: core\iwm_ndis.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_ndis.c
+t_os2ioctl.obj: os2\iwm_os2_ioctl.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ os2\iwm_os2_ioctl.c
+t_os2adapter.obj: os2\iwm_os2_adapter.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ os2\iwm_os2_adapter.c
+#--------------------------------------------------------------------
+# One program per test: main object + the core objects above
+#--------------------------------------------------------------------
+tm_core.obj: tests\test_core.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_core.exe del test_core.exe
+    -$(TCC) -fo=$@ tests\test_core.c
+test_core.exe: tm_core.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_core.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+run_test_core: .SYMBOLIC test_core.exe
+    @if exist test_core.log del test_core.log
+    @if exist test_core.exe test_core.exe > test_core.log 2>&1 && echo test_core>> testpass.txt || echo test_core>> testfail.txt
+    @if not exist test_core.exe echo test_core>> testnobld.txt
+    @if exist test_core.log type test_core.log
+tm_fw_fixes.obj: tests\test_fw_fixes.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_fw_fixes.exe del test_fw_fixes.exe
+    -$(TCC) -fo=$@ tests\test_fw_fixes.c
+test_fw_fixes.exe: tm_fw_fixes.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_fw_fixes.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+run_test_fw_fixes: .SYMBOLIC test_fw_fixes.exe
+    @if exist test_fw_fixes.log del test_fw_fixes.log
+    @if exist test_fw_fixes.exe test_fw_fixes.exe > test_fw_fixes.log 2>&1 && echo test_fw_fixes>> testpass.txt || echo test_fw_fixes>> testfail.txt
+    @if not exist test_fw_fixes.exe echo test_fw_fixes>> testnobld.txt
+    @if exist test_fw_fixes.log type test_fw_fixes.log
+tm_fw_image.obj: tests\test_fw_image.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_fw_image.exe del test_fw_image.exe
+    -$(TCC) -fo=$@ tests\test_fw_image.c
+test_fw_image.exe: tm_fw_image.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_fw_image.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+run_test_fw_image: .SYMBOLIC test_fw_image.exe
+    @if exist test_fw_image.log del test_fw_image.log
+    @if exist test_fw_image.exe test_fw_image.exe > test_fw_image.log 2>&1 && echo test_fw_image>> testpass.txt || echo test_fw_image>> testfail.txt
+    @if not exist test_fw_image.exe echo test_fw_image>> testnobld.txt
+    @if exist test_fw_image.log type test_fw_image.log
+tm_transport.obj: tests\test_transport.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_transport.exe del test_transport.exe
+    -$(TCC) -fo=$@ tests\test_transport.c
+test_transport.exe: tm_transport.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_transport.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+run_test_transport: .SYMBOLIC test_transport.exe
+    @if exist test_transport.log del test_transport.log
+    @if exist test_transport.exe test_transport.exe > test_transport.log 2>&1 && echo test_transport>> testpass.txt || echo test_transport>> testfail.txt
+    @if not exist test_transport.exe echo test_transport>> testnobld.txt
+    @if exist test_transport.log type test_transport.log
+tm_oid.obj: tests\test_oid.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_oid.exe del test_oid.exe
+    -$(TCC) -fo=$@ tests\test_oid.c
+test_oid.exe: tm_oid.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_oid.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+run_test_oid: .SYMBOLIC test_oid.exe
+    @if exist test_oid.log del test_oid.log
+    @if exist test_oid.exe test_oid.exe > test_oid.log 2>&1 && echo test_oid>> testpass.txt || echo test_oid>> testfail.txt
+    @if not exist test_oid.exe echo test_oid>> testnobld.txt
+    @if exist test_oid.log type test_oid.log
+tm_os2_adapter.obj: tests\test_os2_adapter.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_os2_adapter.exe del test_os2_adapter.exe
+    -$(TCC) -fo=$@ tests\test_os2_adapter.c
+test_os2_adapter.exe: tm_os2_adapter.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_os2_adapter.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+run_test_os2_adapter: .SYMBOLIC test_os2_adapter.exe
+    @if exist test_os2_adapter.log del test_os2_adapter.log
+    @if exist test_os2_adapter.exe test_os2_adapter.exe > test_os2_adapter.log 2>&1 && echo test_os2_adapter>> testpass.txt || echo test_os2_adapter>> testfail.txt
+    @if not exist test_os2_adapter.exe echo test_os2_adapter>> testnobld.txt
+    @if exist test_os2_adapter.log type test_os2_adapter.log
+tm_bar.obj: tests\test_bar.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_bar.exe del test_bar.exe
+    -$(TCC) -fo=$@ tests\test_bar.c
+test_bar.exe: tm_bar.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_bar.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+run_test_bar: .SYMBOLIC test_bar.exe
+    @if exist test_bar.log del test_bar.log
+    @if exist test_bar.exe test_bar.exe > test_bar.log 2>&1 && echo test_bar>> testpass.txt || echo test_bar>> testfail.txt
+    @if not exist test_bar.exe echo test_bar>> testnobld.txt
+    @if exist test_bar.log type test_bar.log
+tm_fw_loader.obj: tests\test_fw_loader.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_fw_loader.exe del test_fw_loader.exe
+    -$(TCC) -fo=$@ tests\test_fw_loader.c
+test_fw_loader.exe: tm_fw_loader.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_fw_loader.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+run_test_fw_loader: .SYMBOLIC test_fw_loader.exe
+    @if exist test_fw_loader.log del test_fw_loader.log
+    @if exist test_fw_loader.exe test_fw_loader.exe > test_fw_loader.log 2>&1 && echo test_fw_loader>> testpass.txt || echo test_fw_loader>> testfail.txt
+    @if not exist test_fw_loader.exe echo test_fw_loader>> testnobld.txt
+    @if exist test_fw_loader.log type test_fw_loader.log
+testclean: .SYMBOLIC
+    @if exist tm_*.obj del tm_*.obj
+    @if exist t_*.obj del t_*.obj
+    @if exist test_*.exe del test_*.exe
+    @if exist test_*.log del test_*.log
+    @if exist testpass.txt del testpass.txt
+    @if exist testfail.txt del testfail.txt
+    @if exist testnobld.txt del testnobld.txt
