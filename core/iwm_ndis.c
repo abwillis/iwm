@@ -39,3 +39,4 @@ void iwm_ndis_link_changed(struct iwm_ndis_context *n, int connected)
         n->callbacks->status_change(n->callback_context,
                                     n->adapter->status_generation);
 }
+

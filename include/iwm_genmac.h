@@ -57,3 +57,4 @@ int iwm_genmac_oid_set(struct iwm_adapter *adapter,
                        struct iwm_oid_request *request);
 
 #endif
+

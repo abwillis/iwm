@@ -112,3 +112,4 @@ int iwm_fw_image_parse(const struct iwm_blob *blob,
                        struct iwm_fw_image *image);
 
 #endif
+

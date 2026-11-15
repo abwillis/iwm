@@ -58,3 +58,4 @@ int iwm_ring_space(uint16_t read, uint16_t write, uint16_t count,
     *space = (uint16_t)((read - write - 1U) & (count - 1U));
     return IWM_OK;
 }
+

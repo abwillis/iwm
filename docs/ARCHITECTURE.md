@@ -48,3 +48,4 @@ Use a short register/ring lock and a separate state lock. Never sleep while hold
 ## Security boundary
 
 The firmware loader accepts only ordered chunks after a valid BEGIN, rejects oversize images, verifies CRC32 and exposes explicit status. Production code should also validate TLV bounds, accepted section types, section count, firmware API compatibility and device-family compatibility before any DMA to the device.
+

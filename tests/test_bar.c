@@ -42,3 +42,4 @@ int main(void)
     puts("bar tests passed");
     return 0;
 }
+

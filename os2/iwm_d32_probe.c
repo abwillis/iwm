@@ -30,3 +30,4 @@ int iwm_d32_probe(void)
     D32UnMap((void *)csr);
     return rev == 0xFFFFFFFFUL ? 6 : 0;
 }
+

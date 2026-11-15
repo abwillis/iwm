@@ -47,3 +47,4 @@ These sources describe hardware behavior. Their BSD/Linux OS services are not co
 ## Licensing rule
 
 No Linux/BSD/RTL/MultiMac source file is vendored in this starter. New code is GPL-2.0-only so later integration with the GPL MultiMac and RTL implementation material remains possible. Preserve original notices for any imported code and review firmware redistribution separately.
+

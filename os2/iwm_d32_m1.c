@@ -1,5 +1,5 @@
-/* os2/iwm_d32_m1.c -- M1 probe, Drv32 + MSI. Read-only: no DMA, no
- * device interrupt unmasking, no firmware. Draft; not compiled.
+/* os2/iwm_d32_m1.c -- Drv32 PCI/MSI probe and persistent CSR/ISR anchor.
+ * Firmware DMA is implemented by iwm_d32_fw.c after this probe succeeds.
  * Declarations: Dev32lib.h, Dev32Help.h, bsekee.h (OS2Stuff/Drv32). */
 #include "Dev32lib.h"
 #include "iwm_bar.h"
@@ -30,6 +30,16 @@ volatile unsigned long *iwm_d32_csr(void)
     return g_csr;
 }
 
+void iwm_d32_lock(void)
+{
+    KernAcquireSpinLock(&g_lock);
+}
+
+void iwm_d32_unlock(void)
+{
+    KernReleaseSpinLock(&g_lock);
+}
+
 #pragma aux iwm_msi_isr parm [eax]
 static int iwm_msi_isr(ULONG data)
 {
@@ -43,6 +53,8 @@ static int iwm_msi_isr(ULONG data)
     g_last_cause = cause;
     ++iwm_m1_irq_count;                               /* M1 read-out */
     KernReleaseSpinLock(&g_lock);
+    if (cause != 0 && cause != 0xFFFFFFFFUL)
+        iwm_d32_irq_notify(cause);
     Dev32Help_EOI(g_irq);
     return 0; /* return-value meaning not documented in Dev32Help.h */
 }
@@ -112,3 +124,4 @@ unmap:
     g_csr = 0;
     return rc;
 }
+

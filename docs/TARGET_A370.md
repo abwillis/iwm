@@ -20,3 +20,4 @@ Captured under Linux (lspci), subsystem 8086:0030, PCI revision 10:
    configuration by device and subsystem ID (here 0x0030); confirm the
    entry in the indexed pcie/drv.c before applying per-variant values.
 4. The PM capability at 0xC8 means D0 must be confirmed before CSR access.
+

@@ -190,3 +190,4 @@ int iwm_fw_image_parse(const struct iwm_blob *blob,
     }
     return IWM_OK;
 }
+

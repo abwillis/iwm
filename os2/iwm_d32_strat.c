@@ -1,6 +1,5 @@
-/* os2/iwm_d32_strat.c -- minimal Drv32 entry point for the M1 probe.
- * Pattern: Drv32 Driver.c sample and the GPL NDIS strat.c (Azarewicz).
- * Draft; not compiled. */
+/* os2/iwm_d32_strat.c -- Drv32 entry point for PCI probe and firmware IOCTLs.
+ * Pattern: Drv32 Driver.c sample and the GPL NDIS strat.c (Azarewicz). */
 #include "Dev32lib.h"
 #include "iwm_d32.h"
 
@@ -88,3 +87,4 @@ void StrategyHandler(REQPACKET *prp)
         break;
     }
 }
+

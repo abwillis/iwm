@@ -80,3 +80,4 @@ int main(void)
     puts("os2 adapter tests passed");
     return 0;
 }
+

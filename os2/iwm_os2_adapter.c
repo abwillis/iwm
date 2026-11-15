@@ -66,3 +66,4 @@ void iwm_os2_target_detach(struct iwm_os2_target *t, struct iwm_adapter *a)
         t->stage = 0;
     }
 }
+

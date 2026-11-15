@@ -151,3 +151,4 @@ void iwm_fw_get_status(const struct iwm_fw_session *s,
     status->next_sequence = s->next_sequence;
     status->state = s->state;
 }
+

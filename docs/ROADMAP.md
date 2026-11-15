@@ -56,3 +56,4 @@
 ## Required diagnostics
 
 Keep a fixed-size event ring with sequence number, timestamp/tick, state, CSR interrupt cause, FH cause, command ID, queue/index and status. Provide a read-only IOCTL to copy a bounded snapshot to ring 3. Never format long strings in the ISR.
+

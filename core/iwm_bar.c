@@ -41,3 +41,4 @@ int iwm_bar_size(uint32_t sized_lo, uint32_t sized_hi, int is64,
     *size = (uint32_t)(~mask + 1UL);
     return IWM_OK;
 }
+

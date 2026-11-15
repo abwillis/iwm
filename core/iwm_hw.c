@@ -14,12 +14,20 @@
 #define CSR_GP_CNTRL         0x024UL
 #define CSR_HW_REV           0x028UL
 #define CSR_MBOX_SET_REG     0x088UL
+#define CSR_GIO_CHICKEN_BITS 0x100UL
+#define CSR_DBG_HPET_MEM_REG 0x240UL
+#define CSR_DBG_LINK_PWR_MGMT_REG 0x250UL
 
 /* PREPARE (Linux CSR_HW_IF_CONFIG_REG_WAKE_ME, 0x08000000) is host-owned;
  * NIC_READY (Linux CSR_HW_IF_CONFIG_REG_PCI_OWN_SET, 0x00400000) is set by
  * the device and only observed by the driver. */
 #define CSR_HW_IF_NIC_READY  0x00400000UL
 #define CSR_HW_IF_PREPARE    0x08000000UL
+#define CSR_HW_IF_HAP_WAKE_L1A 0x00080000UL
+#define CSR_GIO_L1A_NO_L0S_RX 0x00800000UL
+#define CSR_GIO_DIS_L0S_EXIT_TIMER 0x20000000UL
+#define CSR_DBG_HPET_MAX_WAIT 0xffff0000UL
+#define CSR_LINK_PWR_MGMT_DISABLED 0x80000000UL
 #define CSR_RESET_SW         0x00000080UL
 #define CSR_RESET_MASTER_DISABLED 0x00000100UL
 #define CSR_RESET_STOP_MASTER 0x00000200UL
@@ -98,16 +106,47 @@ int iwm_adapter_probe(struct iwm_adapter *a, uint16_t vendor,
 int iwm_prepare_card_hw(struct iwm_adapter *a)
 {
     uint32_t v;
+    uint32_t elapsed;
     int rc;
     if (!a || a->state < IWM_ADAPTER_PROBED)
         return IWM_ESTATE;
-    v = rd(a, CSR_HW_IF_CONFIG_REG) | CSR_HW_IF_PREPARE;
+
+    /* Ask for PCI ownership first.  If AMT/firmware has not released the
+     * device yet, use the documented PREPARE fallback and retry for 150 ms. */
+    v = rd(a, CSR_HW_IF_CONFIG_REG) | CSR_HW_IF_NIC_READY;
     wr(a, CSR_HW_IF_CONFIG_REG, v);
     rc = poll(a, CSR_HW_IF_CONFIG_REG, CSR_HW_IF_NIC_READY,
               CSR_HW_IF_NIC_READY, 50, 200);
-    if (rc != IWM_OK)
-        return rc;
+    if (rc != IWM_OK) {
+        wr(a, CSR_DBG_LINK_PWR_MGMT_REG,
+           rd(a, CSR_DBG_LINK_PWR_MGMT_REG) |
+           CSR_LINK_PWR_MGMT_DISABLED);
+        a->ops->delay_us(a->os_context, 1000);
+        wr(a, CSR_HW_IF_CONFIG_REG,
+           rd(a, CSR_HW_IF_CONFIG_REG) | CSR_HW_IF_PREPARE);
+        for (elapsed = 0; elapsed < 150000UL; elapsed += 200U) {
+            wr(a, CSR_HW_IF_CONFIG_REG,
+               rd(a, CSR_HW_IF_CONFIG_REG) | CSR_HW_IF_NIC_READY);
+            if (rd(a, CSR_HW_IF_CONFIG_REG) & CSR_HW_IF_NIC_READY) {
+                rc = IWM_OK;
+                break;
+            }
+            a->ops->delay_us(a->os_context, 200);
+        }
+        if (rc != IWM_OK)
+            return rc;
+    }
     wr(a, CSR_MBOX_SET_REG, CSR_MBOX_OS_ALIVE);
+
+    /* APM bring-up needed before FH/PRPH access. */
+    v = rd(a, CSR_GIO_CHICKEN_BITS) | CSR_GIO_L1A_NO_L0S_RX;
+    if (a->cfg && a->cfg->family < IWM_FAMILY_8000)
+        v |= CSR_GIO_DIS_L0S_EXIT_TIMER;
+    wr(a, CSR_GIO_CHICKEN_BITS, v);
+    wr(a, CSR_DBG_HPET_MEM_REG,
+       rd(a, CSR_DBG_HPET_MEM_REG) | CSR_DBG_HPET_MAX_WAIT);
+    wr(a, CSR_HW_IF_CONFIG_REG,
+       rd(a, CSR_HW_IF_CONFIG_REG) | CSR_HW_IF_HAP_WAKE_L1A);
     v = rd(a, CSR_GP_CNTRL) | CSR_GP_INIT_DONE;
     wr(a, CSR_GP_CNTRL, v);
     rc = poll(a, CSR_GP_CNTRL, CSR_GP_CLOCK_READY,
@@ -165,3 +204,4 @@ int iwm_adapter_fw_alive(struct iwm_adapter *a)
     ++a->status_generation;
     return IWM_OK;
 }
+

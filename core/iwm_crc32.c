@@ -13,3 +13,4 @@ uint32_t iwm_crc32_update(uint32_t crc, const void *data, size_t length)
     }
     return crc;
 }
+

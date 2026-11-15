@@ -13,10 +13,12 @@
 #define IWM_ICT_SIZE             4096U
 
 struct iwm_dma_block {
-    void *vaddr;
-    uint32_t paddr;
+    void *vaddr;          /* aligned address exposed to the hardware layer */
+    uint32_t paddr;       /* aligned DMA32 physical address */
     uint32_t size;
     uint32_t alignment;
+    void *alloc_vaddr;    /* OS allocation base, used when alignment shifted */
+    uint32_t alloc_size;
 };
 
 struct iwm_os_ops {
@@ -97,3 +99,4 @@ int iwm_adapter_set_fw_store(struct iwm_adapter *adapter,
                              struct iwm_blob *store);
 
 #endif
+

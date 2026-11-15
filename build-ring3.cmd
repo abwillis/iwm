@@ -12,3 +12,4 @@ goto end
 :failed
 echo Build failed.
 :end
+

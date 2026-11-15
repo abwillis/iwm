@@ -2,7 +2,7 @@
 
 Experimental source scaffold for a native OS/2/ArcaOS NDIS Wi-Fi driver for the Intel `iwm` device families, with the Intel Dual Band Wireless-AC 9560 as the primary target.
 
-**This is a development starting point, not a working driver.** It identifies the OS/2 boundaries, implements a tested device table, firmware-transfer protocol, core state machines and initial XWLAN/GenMAC OID surface. Hardware firmware loading, command/notification rings, scan completion, association, key installation and NDIS packet I/O remain milestones.
+**This remains a development driver, not a complete Wi-Fi driver.** It identifies the OS/2 boundaries, implements a tested device table, firmware-transfer protocol, core state machines, initial XWLAN/GenMAC OID surface, and the 8000/9000 FH service-channel section loader. The loader now DMA-copies INIT sections and records the early ALIVE interrupt, but deliberately keeps firmware in `LOADING` until an RX notification queue parses the ALIVE command. Command/notification rings, NVM/PHY commands, runtime transition, scan completion, association, key installation and NDIS packet I/O remain milestones.
 
 ## Primary 9560 target
 
@@ -56,8 +56,11 @@ This does not build an OS/2 driver. It verifies the portable core before target 
 2. Disable PCI retry timeout byte `0x41`, enable bus mastering, register legacy INTx first.
 3. Read `CSR_HW_REV`, prepare the card and verify RF-kill state.
 4. Allocate ICT, RX free/status rings, one command TX queue, scheduler table, keep-warm page and firmware DMA bounce buffer.
-5. Make `IWMFWLD.EXE` transfer a real firmware file; parse TLVs and load init/runtime sections through FH DMA.
-6. Wait for ALIVE and expose firmware status through the private IOCTL.
-7. Add scan commands/results, then association and WPA2 keys, then packet I/O.
+5. Make `IWMFWLD.EXE` transfer a real firmware file and parse its TLVs. **Done.**
+6. Load INIT sections through FH DMA and capture firmware-load/early-ALIVE interrupts. **Implemented; target validation required.**
+7. Program the RX notification and command queues, parse the ALIVE command, then read NVM and send PHY configuration.
+8. Stop INIT firmware, load runtime firmware, and validate runtime ALIVE.
+9. Add scan commands/results, then association and WPA2 keys, then packet I/O.
 
 See `docs/ROADMAP.md` for acceptance tests and `docs/REFERENCE_MAP.md` for exact source paths used.
+

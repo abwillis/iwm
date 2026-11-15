@@ -61,3 +61,4 @@ void iwm_free_rings(struct iwm_adapter *a)
     memset(&a->rx_desc, 0, sizeof(a->rx_desc));
     memset(&a->tx_desc, 0, sizeof(a->tx_desc));
 }
+

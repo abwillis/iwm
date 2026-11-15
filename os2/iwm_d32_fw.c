@@ -1,8 +1,9 @@
-/* os2/iwm_d32_fw.c -- ring-0 firmware staging store and the category 0x91
- * IOCTL entry for IWMFWLD.EXE. Draft; M2 hardware load is not included.
+/* os2/iwm_d32_fw.c -- ring-0 firmware staging, category 0x91 IOCTL,
+ * and M2 FH service-channel INIT loader for IWMFWLD.EXE.
  * Declarations: Dev32lib.h, Dev32Help.h, strategy.h (OS2Stuff/Drv32). */
 #include "Dev32lib.h"
 #include "iwm_hw.h"
+#include "iwm_fw_loader.h"
 #include "iwm_os2.h"
 #include "iwm_d32.h"
 
@@ -97,13 +98,73 @@ static void d_wr(void *c, uint32_t off, uint32_t v)
 static void d_delay(void *c, uint32_t us)
 {
     (void)c;
-    (void)us;
+    udelay((ULONG)us);
 }
 
-static const struct iwm_os_ops g_ops = { d_rd, d_wr, d_delay };
+static int d_dma_alloc(void *c, uint32_t size, uint32_t alignment,
+                       struct iwm_dma_block *block)
+{
+    ULONG raw_phys, total, shift;
+    void *raw;
+
+    (void)c;
+    if (!block || size == 0 || alignment == 0 ||
+        (alignment & (alignment - 1U)) ||
+        size > 0xFFFFFFFFUL - (alignment - 1U))
+        return IWM_EINVAL;
+    memset(block, 0, sizeof(*block));
+    total = (ULONG)size + (ULONG)alignment - 1UL;
+    raw = D32AllocMem(total, &raw_phys, 0);
+    if (!raw)
+        return IWM_ENOMEM;
+    shift = (0UL - raw_phys) & ((ULONG)alignment - 1UL);
+    block->alloc_vaddr = raw;
+    block->alloc_size = total;
+    block->vaddr = (uint8_t *)raw + shift;
+    block->paddr = raw_phys + shift;
+    block->size = size;
+    block->alignment = alignment;
+    if (iwm_dma32_check(block->paddr, size, alignment) != IWM_OK) {
+        D32FreeMem(raw);
+        memset(block, 0, sizeof(*block));
+        return IWM_ERANGE;
+    }
+    memset(block->vaddr, 0, size);
+    return IWM_OK;
+}
+
+static void d_dma_free(void *c, struct iwm_dma_block *block)
+{
+    void *raw;
+
+    (void)c;
+    if (!block)
+        return;
+    raw = block->alloc_vaddr ? block->alloc_vaddr : block->vaddr;
+    if (raw)
+        D32FreeMem(raw);
+    memset(block, 0, sizeof(*block));
+}
+
+static void d_lock(void *c)
+{
+    (void)c;
+    iwm_d32_lock();
+}
+
+static void d_unlock(void *c)
+{
+    (void)c;
+    iwm_d32_unlock();
+}
+
+static const struct iwm_os_ops g_ops = {
+    d_rd, d_wr, d_delay, d_dma_alloc, d_dma_free, d_lock, d_unlock, 0
+};
 
 static struct iwm_adapter g_ad;
 static struct iwm_blob g_store;
+static struct iwm_fw_loader g_loader;
 static int g_attached;
 
 int iwm_d32_fw_attach(void)
@@ -121,8 +182,29 @@ int iwm_d32_fw_attach(void)
         return rc;
     iwm_blob_bind(&g_store, &g_store_ops, 0);
     rc = iwm_adapter_set_fw_store(&g_ad, &g_store);
-    if (rc == IWM_OK)
+    if (rc == IWM_OK) {
+        iwm_fw_loader_init(&g_loader, &g_ad);
         g_attached = 1;
+    }
+    return rc;
+}
+
+void iwm_d32_irq_notify(unsigned long cause)
+{
+    if (g_attached)
+        iwm_fw_loader_note_irq(&g_loader, (uint32_t)cause);
+}
+
+static int start_init_firmware(void)
+{
+    int rc;
+
+    rc = iwm_fw_loader_start(&g_loader, IWM_FW_SEC_INIT);
+    dprintf(0,
+        "iwm: init load rc %d stage %lu sections %lu bytes %lu dst %08lx aliveirq %lu\n",
+        rc, (ULONG)g_loader.stage, (ULONG)g_loader.loaded_sections,
+        (ULONG)g_loader.loaded_bytes, (ULONG)g_loader.last_dst,
+        (ULONG)g_loader.alive_interrupt);
     return rc;
 }
 
@@ -182,14 +264,18 @@ void iwm_d32_ioctl(REQPACKET *prp)
 
     rc = iwm_os2_ioctl_dispatch(&g_ad, &req);
 
+    if (req.function == IWM_IOCTL_FW_COMMIT) {
+        /* Log the catalog before a hardware error can abort/reset the store. */
+        log_commit(rc);
+        if (rc == IWM_OK && g_ad.firmware.state == IWM_FW_LOADING)
+            rc = start_init_firmware();
+    }
+
     /* One line per DATA chunk would flood the debug buffer. */
     if (req.function != IWM_IOCTL_FW_DATA || rc != IWM_OK)
         dprintf(0, "iwm: fw fn %d len %lu rc %d state %d accepted %lu\n",
                 (int)req.function, (ULONG)req.data_length, rc,
                 (int)g_ad.firmware.state, (ULONG)g_ad.firmware.accepted);
-
-    if (req.function == IWM_IOCTL_FW_COMMIT)
-        log_commit(rc);
 
     switch (rc) {
     case IWM_OK:
@@ -207,3 +293,4 @@ void iwm_d32_ioctl(REQPACKET *prp)
         break;
     }
 }
+

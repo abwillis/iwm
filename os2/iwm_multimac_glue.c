@@ -53,3 +53,4 @@ unsigned short iwm_strategy_ioctl(PREQPACKET p)
  * the ISR and schedule RX/TX/notification work outside hard-interrupt context.
  */
 #endif
+

@@ -128,3 +128,4 @@ int main(void)
     puts("fw image tests passed");
     return 0;
 }
+

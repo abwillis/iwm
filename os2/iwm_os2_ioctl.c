@@ -90,3 +90,4 @@ int iwm_os2_ioctl_dispatch(struct iwm_adapter *a,
     r->data_actual = oid.bytes_done;
     return rc;
 }
+

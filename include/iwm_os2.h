@@ -24,3 +24,4 @@ void iwm_os2_isr(struct iwm_adapter *adapter);
 void iwm_os2_bottom_half(struct iwm_adapter *adapter);
 
 #endif
+

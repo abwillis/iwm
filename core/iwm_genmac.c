@@ -107,3 +107,4 @@ int iwm_genmac_oid_set(struct iwm_adapter *a, struct iwm_oid_request *r)
         return IWM_ENOTSUP;
     }
 }
+

@@ -15,6 +15,11 @@ int iwm_d32_fw_attach(void);
 /* STRATEGY_GENIOCTL for category 0x91 (firmware loader). */
 void iwm_d32_ioctl(REQPACKET *prp);
 
+/* Shared ring-0 lock and ISR-to-firmware-loader notification path. */
+void iwm_d32_lock(void);
+void iwm_d32_unlock(void);
+void iwm_d32_irq_notify(unsigned long cause);
+
 /* Filled by iwm_d32_m1(); reported by the strategy READ handler. */
 extern volatile unsigned long iwm_m1_rc;
 extern volatile unsigned long iwm_m1_hwrev;
@@ -22,3 +27,4 @@ extern volatile unsigned long iwm_m1_irq;
 extern volatile unsigned long iwm_m1_irq_count;
 
 #endif
+

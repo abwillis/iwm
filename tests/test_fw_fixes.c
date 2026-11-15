@@ -128,3 +128,4 @@ int main(void)
     puts("fw-state fix tests passed");
     return 0;
 }
+
