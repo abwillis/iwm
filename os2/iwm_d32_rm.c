@@ -117,3 +117,4 @@ void iwm_d32_rm_destroy(int destroy_driver)
     if (destroy_driver)
         g_rm_driver_created = 0;
 }
+
