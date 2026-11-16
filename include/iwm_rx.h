@@ -47,6 +47,7 @@ struct iwm_rx_queue {
     uint8_t alive_seen;
     uint8_t last_cmd;
     uint8_t last_group;
+    uint32_t widx_readback;  /* RFH_Q0_FRBDCB_WIDX right after the trigger */
     struct iwm_rx_alive_info alive;
 };
 
@@ -56,6 +57,13 @@ void iwm_rx_free(struct iwm_rx_queue *queue);
 int iwm_rx_program(struct iwm_rx_queue *queue);
 int iwm_rx_drain(struct iwm_rx_queue *queue);
 int iwm_rx_wait_alive(struct iwm_rx_queue *queue, uint32_t timeout_us);
+
+/* Failure diagnostics: out[0] RFH_RXF_DMA_CFG, [1] RFH_RXF_RXQ_ACTIVE,
+ * [2] RFH_Q0_FRBDCB_WIDX, [3] RFH_Q0_FRBDCB_RIDX, [4] status block
+ * closed_rb_num | finished_rb_num << 16.  A zero read-back of [0]/[1] means
+ * the RFH never accepted the programming; RIDX == 0 with both set means the
+ * RFH never fetched a free descriptor (nothing arrived from firmware). */
+void iwm_rx_debug(struct iwm_rx_queue *queue, uint32_t out[5]);
 
 /* Parse one receive buffer.  Exposed for deterministic host tests. */
 int iwm_rx_process_buffer(struct iwm_rx_queue *queue,

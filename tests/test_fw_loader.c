@@ -7,6 +7,7 @@
 #include "iwm_rx.h"
 
 #define CSR_INT 0x008U
+#define CSR_FH_INT_STATUS 0x010U
 #define CSR_GP_CNTRL 0x024U
 #define CSR_HW_REV 0x028U
 #define CSR_GP_CLOCK_READY 0x1U
@@ -113,8 +114,15 @@ static void mock_write(void *p, uint32_t off, uint32_t value)
     struct mock_hw *m = (struct mock_hw *)p;
     unsigned i = (off >> 2) & 2047U;
 
+    if (off == CSR_FH_INT_STATUS) {
+        m->regs[i] &= ~value; /* write-one-to-clear */
+        return;
+    }
     if (off == CSR_INT) {
         m->regs[i] &= ~value; /* write-one-to-clear */
+        /* FH_TX is only a summary of FH_INT_STATUS and re-latches. */
+        if (m->regs[CSR_FH_INT_STATUS >> 2] & 3U)
+            m->regs[i] |= IWM_CSR_INT_FH_TX;
         return;
     }
     if (off == HBUS_TARG_PRPH_WADDR) {
@@ -130,6 +138,7 @@ static void mock_write(void *p, uint32_t off, uint32_t value)
             (value & FH_TCSR_ENABLE)) {
             ++m->transfers;
             m->regs[CSR_INT >> 2] |= IWM_CSR_INT_FH_TX;
+            m->regs[CSR_FH_INT_STATUS >> 2] |= 1U;
         }
         if (m->prph_waddr == FH_UCODE_LOAD_STATUS) {
             m->load_status = value;
@@ -151,6 +160,7 @@ static void mock_write(void *p, uint32_t off, uint32_t value)
     if (off == FH_TCSR_CONFIG_9 && (value & FH_TCSR_ENABLE)) {
         ++m->transfers;
         m->regs[CSR_INT >> 2] |= IWM_CSR_INT_FH_TX;
+        m->regs[CSR_FH_INT_STATUS >> 2] |= 1U;
     }
     m->regs[i] = value;
     if (off == CSR_GP_CNTRL && (value & CSR_GP_INIT_DONE))
@@ -279,6 +289,9 @@ int main(void)
     assert(loader.stage == IWM_FWLS_ALIVE_IRQ);
     assert(a.firmware.state == IWM_FW_LOADING); /* RX ALIVE still required */
     assert(hw.transfers == 2);
+    /* Every FH_TX completion is acknowledged at the source, not just in CSR_INT. */
+    assert((hw.regs[CSR_FH_INT_STATUS >> 2] & 3U) == 0);
+    assert(!(hw.regs[CSR_INT >> 2] & IWM_CSR_INT_FH_TX));
 
     iwm_fw_loader_free(&loader);
 
@@ -293,6 +306,7 @@ int main(void)
     assert(iwm_fw_loader_start(&loader, IWM_FW_SEC_INIT) == IWM_ETIMEDOUT);
     assert(loader.stage == IWM_FWLS_FAILED);
     assert(loader.last_error == IWM_ETIMEDOUT);
+    assert(loader.last_gp_cntrl & CSR_GP_INIT_DONE); /* failure snapshot taken */
     assert(loader.alive_interrupt == 0);
     assert(loader.alive_notification == 0);
     assert(a.firmware.state == IWM_FW_FAILED);

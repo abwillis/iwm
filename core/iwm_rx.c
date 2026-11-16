@@ -7,7 +7,9 @@
 #include "iwm_transport.h"
 
 #define HBUS_TARG_PRPH_WADDR          0x444UL
+#define HBUS_TARG_PRPH_RADDR          0x448UL
 #define HBUS_TARG_PRPH_WDAT           0x44cUL
+#define HBUS_TARG_PRPH_RDAT           0x450UL
 #define HBUS_PRPH_DWORD               (3UL << 24)
 #define RFH_Q0_FRBDCB_BA_LSB          0x00a08000UL
 #define RFH_Q0_FRBDCB_WIDX            0x00a08080UL
@@ -39,6 +41,37 @@ static int prph_write_locked(struct iwm_rx_queue *q, uint32_t reg,
     wr(q, HBUS_TARG_PRPH_WADDR, reg | HBUS_PRPH_DWORD);
     wr(q, HBUS_TARG_PRPH_WDAT, value);
     return IWM_OK;
+}
+
+static uint32_t prph_read_locked(struct iwm_rx_queue *q, uint32_t reg)
+{
+    wr(q, HBUS_TARG_PRPH_RADDR, reg | HBUS_PRPH_DWORD);
+    return q->adapter->ops->mmio_read32(q->adapter->os_context,
+                                        HBUS_TARG_PRPH_RDAT);
+}
+
+void iwm_rx_debug(struct iwm_rx_queue *q, uint32_t out[5])
+{
+    volatile struct iwm_rx_status *s;
+    unsigned i;
+
+    for (i = 0; i < 5U; ++i)
+        out[i] = 0;
+    if (!q || !q->adapter || !q->adapter->ops ||
+        !q->adapter->ops->mmio_read32 || !q->programmed)
+        return;
+    if (iwm_grab_nic_access(q->adapter) == IWM_OK) {
+        out[0] = prph_read_locked(q, RFH_RXF_DMA_CFG);
+        out[1] = prph_read_locked(q, RFH_RXF_RXQ_ACTIVE);
+        out[2] = prph_read_locked(q, RFH_Q0_FRBDCB_WIDX);
+        out[3] = prph_read_locked(q, RFH_Q0_FRBDCB_RIDX);
+        iwm_release_nic_access(q->adapter);
+    }
+    if (q->status.vaddr) {
+        s = (volatile struct iwm_rx_status *)q->status.vaddr;
+        out[4] = (uint32_t)s->closed_rb_num |
+                 ((uint32_t)s->finished_rb_num << 16);
+    }
 }
 
 static void desc_set(struct iwm_rx_queue *q, uint16_t slot, uint16_t rbid)
@@ -185,6 +218,13 @@ int iwm_rx_program(struct iwm_rx_queue *q)
 
     /* The shadow write-index trigger is in the CSR window, not PRPH. */
     wr(q, RFH_Q0_FRBDCB_WIDX_TRG, q->write_actual);
+    /* Diagnostic: 0 here means the trigger was not accepted, so the RFH has
+     * no free buffer for the ALIVE notification. Expect write_actual. */
+    q->widx_readback = 0xFFFFFFFFUL;
+    if (iwm_grab_nic_access(q->adapter) == IWM_OK) {
+        q->widx_readback = prph_read_locked(q, RFH_Q0_FRBDCB_WIDX);
+        iwm_release_nic_access(q->adapter);
+    }
     q->programmed = 1;
     return IWM_OK;
 }

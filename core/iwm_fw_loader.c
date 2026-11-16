@@ -11,6 +11,8 @@
 #define CSR_INT                         0x008UL
 #define CSR_INT_MASK                    0x00cUL
 #define CSR_FH_INT_STATUS               0x010UL
+#define CSR_GP_CNTRL                    0x024UL
+#define FH_INT_TX_MASK                  0x00000003UL /* TX chnl 0/1 */
 #define CSR_UCODE_DRV_GP1_CLR           0x05cUL
 #define CSR_UCODE_SW_BIT_RFKILL         0x00000002UL
 #define CSR_UCODE_DRV_GP1_CMD_BLOCKED   0x00000004UL
@@ -240,6 +242,17 @@ int iwm_fw_section_cpu(const struct iwm_fw_image *image, uint16_t index,
     return index < cpu_sep ? 1 : 2;
 }
 
+/* The FH TX interrupt is a two-level latch: CSR_INT bit 27 is only a summary
+ * of CSR_FH_INT_STATUS.  Clearing CSR_INT alone leaves the source bit set, so
+ * the summary re-asserts and the next chunk wait returns before its DMA has
+ * finished.  Clear the source first, then the summary (iwlwifi/iwm ISR does
+ * the same on every FH_TX). */
+static void ack_fh_tx(struct iwm_fw_loader *l)
+{
+    wr(l, CSR_FH_INT_STATUS, FH_INT_TX_MASK);
+    wr(l, CSR_INT, IWM_CSR_INT_FH_TX);
+}
+
 static int load_chunk(struct iwm_fw_loader *l, uint32_t dst,
                       uint32_t length)
 {
@@ -247,7 +260,7 @@ static int load_chunk(struct iwm_fw_loader *l, uint32_t dst,
     int rc;
 
     clear_pending(l, IWM_CSR_INT_FH_TX);
-    wr(l, CSR_INT, IWM_CSR_INT_FH_TX); /* discard a stale W1C completion */
+    ack_fh_tx(l); /* discard a stale completion at both latch levels */
     rc = iwm_grab_nic_access(l->adapter);
     if (rc != IWM_OK)
         return rc;
@@ -264,7 +277,9 @@ static int load_chunk(struct iwm_fw_loader *l, uint32_t dst,
     wr(l, FH_TCSR_CONFIG(FH_SRVC_CHNL),
        FH_TCSR_ENABLE | FH_TCSR_CREDIT_DISABLE | FH_TCSR_HOST_ENDTFD);
     iwm_release_nic_access(l->adapter);
-    return wait_cause(l, IWM_CSR_INT_FH_TX, IWM_FW_LOAD_TIMEOUT_US);
+    rc = wait_cause(l, IWM_CSR_INT_FH_TX, IWM_FW_LOAD_TIMEOUT_US);
+    ack_fh_tx(l);
+    return rc;
 }
 
 static int load_section(struct iwm_fw_loader *l,
@@ -336,6 +351,9 @@ static int fail_load(struct iwm_fw_loader *l, int rc)
     l->last_csr_int = rd(l, CSR_INT);
     l->last_fh_int = rd(l, CSR_FH_INT_STATUS);
     l->last_load_status = rd(l, FH_UCODE_LOAD_STATUS);
+    l->last_gp_cntrl = rd(l, CSR_GP_CNTRL);
+    if (l->rxq)
+        iwm_rx_debug(l->rxq, l->last_rfh);
     wr(l, CSR_INT_MASK, 0);
     l->last_error = rc;
     l->stage = IWM_FWLS_FAILED;
@@ -371,6 +389,8 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     l->last_csr_int = 0;
     l->last_fh_int = 0;
     l->last_load_status = 0;
+    l->last_gp_cntrl = 0;
+    memset(l->last_rfh, 0, sizeof(l->last_rfh));
 
     rc = iwm_prepare_card_hw(l->adapter);
     if (rc != IWM_OK)

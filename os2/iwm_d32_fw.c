@@ -236,6 +236,13 @@ static int start_init_firmware(void)
         (ULONG)g_loader.last_fh_int, (ULONG)g_loader.last_load_status,
         (ULONG)iwm_m1_irq_count, (ULONG)g_rxq.packets,
         (ULONG)g_rxq.malformed, (ULONG)g_rxq.last_closed);
+    if (rc != IWM_OK)
+        dprintf(0,
+            "iwm: dbg trg %08lx gp %08lx rfh cfg %08lx act %08lx widx %08lx ridx %08lx stts %08lx\n",
+            (ULONG)g_rxq.widx_readback,
+            (ULONG)g_loader.last_gp_cntrl, (ULONG)g_loader.last_rfh[0],
+            (ULONG)g_loader.last_rfh[1], (ULONG)g_loader.last_rfh[2],
+            (ULONG)g_loader.last_rfh[3], (ULONG)g_loader.last_rfh[4]);
     if (g_loader.alive_notification)
         dprintf(0, "iwm: alive status %04x flags %04x lmac %08lx.%08lx\n",
                 g_rxq.alive.status, g_rxq.alive.flags,
@@ -332,8 +339,16 @@ void iwm_d32_ioctl(REQPACKET *prp)
     } else {
         if (req.function == IWM_IOCTL_FW_COMMIT) {
             log_commit(rc);
-            if (rc == IWM_OK && g_ad.firmware.state == IWM_FW_LOADING)
-                rc = start_init_firmware();
+            /* COMMIT reports the transfer (length, CRC, TLV parse). The INIT
+             * boot result is logged and kept in firmware.last_error for
+             * FW_STATUS; a failed boot still leaves the session FAILED and
+             * scan gated, but no longer looks like a failed copy. */
+            if (rc == IWM_OK && g_ad.firmware.state == IWM_FW_LOADING) {
+                int boot = start_init_firmware();
+                if (boot != IWM_OK)
+                    dprintf(0, "iwm: transfer ok, init boot failed rc %d\n",
+                            boot);
+            }
         }
         if (req.function != IWM_IOCTL_FW_DATA || rc != IWM_OK)
             dprintf(0, "iwm: fw fn %d len %lu rc %d state %d accepted %lu\n",

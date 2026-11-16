@@ -11,6 +11,9 @@
 #define CSR_INT          0x008
 #define CSR_INT_MASK     0x00C
 #define CSR_HW_REV       0x028
+#define CSR_FH_INT_STATUS 0x010
+#define IWM_INT_FH_TX    0x08000000UL
+#define IWM_FH_INT_TX_MASK 0x00000003UL
 #define PCI_CMD          0x04
 #define PCI_CMD_INTX_DIS 0x0400
 /* MSI capability at 0xD0 on this 8086:a370 (lspci "Capabilities: [d0] MSI",
@@ -50,9 +53,23 @@ static int iwm_msi_isr(ULONG data)
 
     (void)data;
     KernAcquireSpinLock(&g_lock);
-    cause = g_csr ? g_csr[CSR_INT / 4] : 0;
-    if (cause != 0 && cause != 0xFFFFFFFFUL)
-        g_csr[CSR_INT / 4] = cause;          /* write-1-to-clear */
+    cause = 0;
+    if (g_csr) {
+        /* Linux iwl_pcie_isr pattern: mask, read and acknowledge, then
+         * restore the mask. Restoring it makes the device send a fresh MSI
+         * for any cause that latched while the handler ran; without this a
+         * cause such as ALIVE or SW_ERR can stay pending with no interrupt. */
+        ULONG mask = g_csr[CSR_INT_MASK / 4];
+        g_csr[CSR_INT_MASK / 4] = 0;
+        cause = g_csr[CSR_INT / 4];
+        if (cause != 0 && cause != 0xFFFFFFFFUL) {
+            g_csr[CSR_INT / 4] = cause;      /* write-1-to-clear */
+            if (cause & IWM_INT_FH_TX)       /* source of the FH_TX summary */
+                g_csr[CSR_FH_INT_STATUS / 4] = IWM_FH_INT_TX_MASK;
+        }
+        if (cause != 0xFFFFFFFFUL)
+            g_csr[CSR_INT_MASK / 4] = mask;
+    }
     g_last_cause = cause;
     if (cause != 0 && cause != 0xFFFFFFFFUL)
         ++iwm_m1_irq_count;                           /* M1 read-out */

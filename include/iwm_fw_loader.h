@@ -36,6 +36,8 @@ struct iwm_fw_loader {
     uint32_t last_csr_int;
     uint32_t last_fh_int;
     uint32_t last_load_status;
+    uint32_t last_gp_cntrl;
+    uint32_t last_rfh[5]; /* DMA_CFG, RXQ_ACTIVE, WIDX, RIDX, closed|finished<<16 */
     uint16_t loaded_sections;
     uint16_t stage;
     int32_t last_error;

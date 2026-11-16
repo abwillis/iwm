@@ -115,7 +115,7 @@ $(LOADER): $(R3_OBJS)
 $(DRIVER): $(R0_OBJS) IWM32.lnk
     $(LINK) @IWM32.lnk
 
-IWM32.lnk: makefile.wat
+IWM32.lnk: makefile.wat $(R0_OBJS)
     @%create $@
     @%append $@ name $(DRIVER)
     @%append $@ format os2 lx physdevice
@@ -144,6 +144,7 @@ clean: .SYMBOLIC
     @if exist *.obj del *.obj
     @if exist *.err del *.err
     @if exist *.map del *.map
+    @if exist *.lnk del *.lnk
     @if exist $(DRIVER) del $(DRIVER)
     @if exist $(LOADER) del $(LOADER)
 
