@@ -5,6 +5,7 @@
 #include <string.h>
 #include "iwm_fw_loader.h"
 #include "iwm_rx.h"
+#include "iwm_tx.h"
 
 #define CSR_INT 0x008U
 #define CSR_FH_INT_STATUS 0x010U
@@ -19,6 +20,9 @@
 #define HBUS_TARG_PRPH_RADDR 0x448U
 #define HBUS_TARG_PRPH_WDAT 0x44cU
 #define HBUS_TARG_PRPH_RDAT 0x450U
+#define FH_KW_MEM_ADDR_REG 0x197cU
+#define FH_MEM_CBBC_QUEUE0 0x19d0U
+#define RELEASE_CPU_RESET 0x300cU
 
 struct mock_hw {
     uint32_t regs[2048];
@@ -29,6 +33,7 @@ struct mock_hw {
     uint32_t load_status;
     uint32_t next_phys;
     struct iwm_rx_queue *rxq;
+    int cpu_released;
 };
 
 struct mem_store {
@@ -134,6 +139,8 @@ static void mock_write(void *p, uint32_t off, uint32_t value)
         return;
     }
     if (off == HBUS_TARG_PRPH_WDAT) {
+        if (m->prph_waddr == RELEASE_CPU_RESET)
+            m->cpu_released = 1;
         if (m->prph_waddr == FH_TCSR_CONFIG_9 &&
             (value & FH_TCSR_ENABLE)) {
             ++m->transfers;
@@ -142,7 +149,10 @@ static void mock_write(void *p, uint32_t off, uint32_t value)
         }
         if (m->prph_waddr == FH_UCODE_LOAD_STATUS) {
             m->load_status = value;
-            if (value == 0xffffffffUL && m->signal_alive) {
+            if (value == 0xffffffffUL && m->signal_alive &&
+                m->cpu_released && m->rxq && m->rxq->programmed &&
+                m->regs[FH_KW_MEM_ADDR_REG >> 2] != 0 &&
+                m->regs[FH_MEM_CBBC_QUEUE0 >> 2] != 0) {
                 m->regs[CSR_INT >> 2] |= IWM_CSR_INT_ALIVE;
                 inject_alive(m);
             }
@@ -151,7 +161,10 @@ static void mock_write(void *p, uint32_t off, uint32_t value)
     }
     if (off == FH_UCODE_LOAD_STATUS) {
         m->load_status = value;
-        if (value == 0xffffffffUL && m->signal_alive) {
+        if (value == 0xffffffffUL && m->signal_alive &&
+            m->cpu_released && m->rxq && m->rxq->programmed &&
+            m->regs[FH_KW_MEM_ADDR_REG >> 2] != 0 &&
+            m->regs[FH_MEM_CBBC_QUEUE0 >> 2] != 0) {
             m->regs[CSR_INT >> 2] |= IWM_CSR_INT_ALIVE;
             inject_alive(m);
         }
@@ -214,6 +227,7 @@ int main(void)
     struct iwm_blob blob;
     struct iwm_fw_loader loader;
     struct iwm_rx_queue rxq;
+    struct iwm_tx_transport tx;
     struct iwm_fw_image *im;
     uint8_t bytes[64];
     unsigned i;
@@ -272,9 +286,12 @@ int main(void)
     a.state = IWM_ADAPTER_FW_WAIT;
     iwm_rx_init(&rxq, &a);
     assert(iwm_rx_alloc(&rxq) == IWM_OK);
+    iwm_tx_init(&tx, &a);
+    assert(iwm_tx_alloc(&tx) == IWM_OK);
     hw.rxq = &rxq;
     iwm_fw_loader_init(&loader, &a);
     iwm_fw_loader_bind_rx(&loader, &rxq);
+    iwm_fw_loader_bind_tx(&loader, &tx);
     rc = iwm_fw_loader_start(&loader, IWM_FW_SEC_INIT);
     if (rc != IWM_OK)
         fprintf(stderr, "loader rc %d stage %u loaded %u transfers %u rx packets %lu bad %lu closed %u\n",
@@ -289,6 +306,9 @@ int main(void)
     assert(loader.stage == IWM_FWLS_ALIVE_IRQ);
     assert(a.firmware.state == IWM_FW_LOADING); /* RX ALIVE still required */
     assert(hw.transfers == 2);
+    assert(tx.prepared && tx.scheduler_started);
+    assert(hw.regs[FH_KW_MEM_ADDR_REG >> 2] == tx.keep_warm.paddr >> 4);
+    assert(hw.regs[FH_MEM_CBBC_QUEUE0 >> 2] == tx.cmd_tfds.paddr >> 8);
     /* Every FH_TX completion is acknowledged at the source, not just in CSR_INT. */
     assert((hw.regs[CSR_FH_INT_STATUS >> 2] & 3U) == 0);
     assert(!(hw.regs[CSR_INT >> 2] & IWM_CSR_INT_FH_TX));
@@ -303,6 +323,7 @@ int main(void)
     a.state = IWM_ADAPTER_FW_WAIT;
     iwm_fw_loader_init(&loader, &a);
     iwm_fw_loader_bind_rx(&loader, &rxq);
+    iwm_fw_loader_bind_tx(&loader, &tx);
     assert(iwm_fw_loader_start(&loader, IWM_FW_SEC_INIT) == IWM_ETIMEDOUT);
     assert(loader.stage == IWM_FWLS_FAILED);
     assert(loader.last_error == IWM_ETIMEDOUT);
@@ -310,7 +331,11 @@ int main(void)
     assert(loader.alive_interrupt == 0);
     assert(loader.alive_notification == 0);
     assert(a.firmware.state == IWM_FW_FAILED);
+    assert(loader.last_tx_state[0] && loader.last_tx_state[1]);
+    assert(!loader.last_tx_state[2]); /* SCD starts only after valid ALIVE. */
+    assert(loader.last_tx[0] != 0 && loader.last_tx[1] != 0);
     iwm_fw_loader_free(&loader);
+    iwm_tx_free(&tx);
     iwm_rx_free(&rxq);
     iwm_blob_reset(&blob);
     puts("firmware loader tests passed");

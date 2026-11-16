@@ -5,10 +5,11 @@ CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Werror
 CPPFLAGS += -Iinclude -Itests
 CORE = core/iwm_devices.c core/iwm_crc32.c core/iwm_fw_stream.c \
        core/iwm_fw_image.c core/iwm_fw_loader.c core/iwm_transport.c core/iwm_bar.c \
-       core/iwm_hw.c core/iwm_rings.c core/iwm_rx.c core/iwm_genmac.c core/iwm_ndis.c
+       core/iwm_hw.c core/iwm_rings.c core/iwm_rx.c core/iwm_tx.c \
+       core/iwm_genmac.c core/iwm_ndis.c
 OS2HOST = os2/iwm_os2_ioctl.c os2/iwm_os2_adapter.c
 TESTS = test_core test_fw_fixes test_fw_image test_transport test_oid \
-        test_os2_adapter test_bar test_fw_loader test_rx
+         test_os2_adapter test_bar test_fw_loader test_rx test_tx
 
 .PHONY: all test clean
 all: $(TESTS:%=build/%)

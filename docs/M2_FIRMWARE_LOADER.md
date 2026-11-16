@@ -32,7 +32,8 @@ adapter state becomes ERROR, and the staged image is discarded.
 
 ## Next code slice
 
-1. Build the command TX queue and synchronous response path.
+1. Use the now-initialized command TX queue to add descriptor construction,
+   a synchronous response path, and bounded completion handling.
 2. Issue INIT NVM and PHY configuration commands.
 3. Stop INIT firmware and repeat the load for runtime sections, retaining paging blocks for `FW_PAGING_BLOCK_CMD`.
 4. Validate runtime ALIVE before calling `iwm_adapter_fw_alive()`.

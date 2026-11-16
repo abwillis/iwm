@@ -52,8 +52,8 @@ CF_R3 = -q -bt=os2 -zq -wx -6s -zp4 -d__OS2__ -bm -obilmr -we -ei &
 
 R0_OBJS = r0_strat.obj r0_m1.obj r0_rm.obj r0_bar.obj r0_fw.obj r0_ioctl.obj &
           r0_devices.obj r0_crc32.obj r0_fw_stream.obj r0_fw_image.obj &
-          r0_fw_loader.obj r0_transport.obj r0_hw.obj r0_rings.obj &
-           r0_rx.obj r0_genmac.obj
+           r0_fw_loader.obj r0_transport.obj r0_hw.obj r0_rings.obj &
+           r0_rx.obj r0_tx.obj r0_genmac.obj
 R3_OBJS = r3_iwmfwld.obj r3_crc32.obj
 
 all: .SYMBOLIC check ring3 driver
@@ -100,6 +100,8 @@ r0_rings.obj: core\iwm_rings.c .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ core\iwm_rings.c
 r0_rx.obj: core\iwm_rx.c include\iwm_rx.h .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ core\iwm_rx.c
+r0_tx.obj: core\iwm_tx.c include\iwm_tx.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_tx.c
 r0_genmac.obj: core\iwm_genmac.c .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ core\iwm_genmac.c
 

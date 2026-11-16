@@ -39,7 +39,10 @@ A complete image should not be placed in the 16-bit driver's data segment. If fu
 - 512 RX free descriptors for 9560/9260 multi-queue hardware; 256 for older legacy RX.
 - 4096-byte RX buffers.
 - 4096-byte ICT aligned to 4096 bytes.
-- A separate command buffer array and scheduler byte-count table still need to be added.
+- The transport prerequisite slice now owns a 4 KiB keep-warm page, the
+  31-queue scheduler byte-count allocation, and one queue-0 command TFD ring
+  with 32 first-TB/command slots. Host-command encoding and completion remain
+  the next bounded slice.
 
 ## Concurrency
 

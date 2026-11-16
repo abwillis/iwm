@@ -6,6 +6,7 @@
 #include "iwm_transport.h"
 
 struct iwm_rx_queue;
+struct iwm_tx_transport;
 
 /* The service-channel transfer buffer is deliberately small.  It remains
  * below iwm_blob_read()'s 16-bit length limit and below FH's 128 KiB limit. */
@@ -29,6 +30,7 @@ enum iwm_fw_load_stage {
 struct iwm_fw_loader {
     struct iwm_adapter *adapter;
     struct iwm_rx_queue *rxq;
+    struct iwm_tx_transport *tx;
     struct iwm_dma_block bounce;
     volatile uint32_t irq_cause;
     uint32_t loaded_bytes;
@@ -38,6 +40,8 @@ struct iwm_fw_loader {
     uint32_t last_load_status;
     uint32_t last_gp_cntrl;
     uint32_t last_rfh[5]; /* DMA_CFG, RXQ_ACTIVE, WIDX, RIDX, closed|finished<<16 */
+    uint32_t last_tx[12]; /* keep-warm, CBBC, FH0/7, chicken, SCD state */
+    uint8_t last_tx_state[3]; /* allocated, prepared, scheduler started */
     uint16_t loaded_sections;
     uint16_t stage;
     int32_t last_error;
@@ -49,6 +53,8 @@ void iwm_fw_loader_init(struct iwm_fw_loader *loader,
                         struct iwm_adapter *adapter);
 void iwm_fw_loader_bind_rx(struct iwm_fw_loader *loader,
                            struct iwm_rx_queue *queue);
+void iwm_fw_loader_bind_tx(struct iwm_fw_loader *loader,
+                           struct iwm_tx_transport *transport);
 int iwm_fw_loader_alloc(struct iwm_fw_loader *loader);
 void iwm_fw_loader_free(struct iwm_fw_loader *loader);
 

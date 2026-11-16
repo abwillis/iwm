@@ -7,6 +7,7 @@
 #endif
 #include "iwm_fw_loader.h"
 #include "iwm_rx.h"
+#include "iwm_tx.h"
 
 #define CSR_INT                         0x008UL
 #define CSR_INT_MASK                    0x00cUL
@@ -122,6 +123,13 @@ void iwm_fw_loader_bind_rx(struct iwm_fw_loader *l, struct iwm_rx_queue *q)
 {
     if (l)
         l->rxq = q;
+}
+
+void iwm_fw_loader_bind_tx(struct iwm_fw_loader *l,
+                           struct iwm_tx_transport *tx)
+{
+    if (l)
+        l->tx = tx;
 }
 
 int iwm_fw_loader_alloc(struct iwm_fw_loader *l)
@@ -348,12 +356,33 @@ static int load_cpu(struct iwm_fw_loader *l, uint8_t image_flag, int cpu)
 
 static int fail_load(struct iwm_fw_loader *l, int rc)
 {
+    struct iwm_tx_debug txd;
+
     l->last_csr_int = rd(l, CSR_INT);
     l->last_fh_int = rd(l, CSR_FH_INT_STATUS);
     l->last_load_status = rd(l, FH_UCODE_LOAD_STATUS);
     l->last_gp_cntrl = rd(l, CSR_GP_CNTRL);
     if (l->rxq)
         iwm_rx_debug(l->rxq, l->last_rfh);
+    if (l->tx) {
+        iwm_tx_debug_snapshot(l->tx, &txd);
+        l->last_tx[0] = txd.keep_warm;
+        l->last_tx[1] = txd.cmd_cbbc;
+        l->last_tx[2] = txd.fh_config_0;
+        l->last_tx[3] = txd.fh_config_7;
+        l->last_tx[4] = txd.fh_chicken;
+        l->last_tx[5] = txd.scd_sram_base;
+        l->last_tx[6] = txd.scd_dram_base;
+        l->last_tx[7] = txd.scd_txfact;
+        l->last_tx[8] = txd.scd_cmd_rdptr;
+        l->last_tx[9] = txd.scd_cmd_wrptr;
+        l->last_tx[10] = txd.scd_cmd_status;
+        l->last_tx[11] = txd.hbus_wrptr;
+        l->last_tx_state[0] = txd.allocated;
+        l->last_tx_state[1] = txd.prepared;
+        l->last_tx_state[2] = txd.scheduler_started;
+        iwm_tx_stop(l->tx);
+    }
     wr(l, CSR_INT_MASK, 0);
     l->last_error = rc;
     l->stage = IWM_FWLS_FAILED;
@@ -391,18 +420,23 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     l->last_load_status = 0;
     l->last_gp_cntrl = 0;
     memset(l->last_rfh, 0, sizeof(l->last_rfh));
+    memset(l->last_tx, 0, sizeof(l->last_tx));
+    memset(l->last_tx_state, 0, sizeof(l->last_tx_state));
 
     rc = iwm_prepare_card_hw(l->adapter);
     if (rc != IWM_OK)
         return fail_load(l, rc);
     l->stage = IWM_FWLS_PREPARED;
 
-    /* The 9000-family firmware delivers ALIVE through RFH queue 0.  Program
-     * the queue before either secure CPU is released; otherwise firmware has
-     * nowhere to DMA the notification and boot appears to time out. */
-    if (!l->rxq)
+    /* Linux iwl_pcie_nic_init() prepares RX and TX before loading firmware.
+     * The pre-ALIVE TX phase publishes keep-warm and command-TFD DMA state;
+     * the SCD itself is intentionally started only after a valid ALIVE. */
+    if (!l->rxq || !l->tx)
         return fail_load(l, IWM_ESTATE);
     rc = iwm_rx_program(l->rxq);
+    if (rc != IWM_OK)
+        return fail_load(l, rc);
+    rc = iwm_tx_prepare(l->tx);
     if (rc != IWM_OK)
         return fail_load(l, rc);
 
@@ -446,6 +480,11 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
         return fail_load(l, rc);
     l->alive_notification = 1;
     l->stage = IWM_FWLS_ALIVE_IRQ;
+    /* Linux iwl_trans_pcie_fw_alive() starts the scheduler here, after ALIVE
+     * makes SCD_SRAM_BASE_ADDR valid and before the first host command. */
+    rc = iwm_tx_start_scheduler(l->tx);
+    if (rc != IWM_OK)
+        return fail_load(l, rc);
     l->last_csr_int = rd(l, CSR_INT);
     l->last_fh_int = rd(l, CSR_FH_INT_STATUS);
     l->last_load_status = rd(l, FH_UCODE_LOAD_STATUS);

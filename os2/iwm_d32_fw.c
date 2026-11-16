@@ -5,6 +5,7 @@
 #include "iwm_hw.h"
 #include "iwm_fw_loader.h"
 #include "iwm_rx.h"
+#include "iwm_tx.h"
 #include "iwm_os2.h"
 #include "iwm_d32.h"
 
@@ -170,6 +171,7 @@ static struct iwm_scan_cache g_scan;
 static struct iwm_blob g_store;
 static struct iwm_fw_loader g_loader;
 static struct iwm_rx_queue g_rxq;
+static struct iwm_tx_transport g_tx;
 static int g_attached;
 
 int iwm_d32_fw_attach(void)
@@ -205,14 +207,30 @@ int iwm_d32_fw_attach(void)
             (ULONG)g_rxq.free_desc.paddr, (ULONG)g_rxq.used_desc.paddr,
             (ULONG)g_rxq.status.paddr, (ULONG)g_rxq.buffers.paddr,
             (ULONG)g_rxq.buffers.size);
+    iwm_tx_init(&g_tx, &g_ad);
+    rc = iwm_tx_alloc(&g_tx);
+    if (rc != IWM_OK) {
+        dprintf(0, "iwm: tx transport alloc rc %d\n", rc);
+        iwm_rx_free(&g_rxq);
+        return rc;
+    }
+    dprintf(0,
+        "iwm: tx kw %08lx bc %08lx/%lu tfd %08lx/%lu first %08lx cmd %08lx\n",
+        (ULONG)g_tx.keep_warm.paddr, (ULONG)g_tx.scd_bc_table.paddr,
+        (ULONG)g_tx.scd_bc_table.size, (ULONG)g_tx.cmd_tfds.paddr,
+        (ULONG)g_tx.cmd_tfds.size, (ULONG)g_tx.cmd_first_tb.paddr,
+        (ULONG)g_tx.cmd_buffers.paddr);
     iwm_blob_bind(&g_store, &g_store_ops, 0);
     rc = iwm_adapter_set_fw_store(&g_ad, &g_store);
     if (rc == IWM_OK) {
         iwm_fw_loader_init(&g_loader, &g_ad);
         iwm_fw_loader_bind_rx(&g_loader, &g_rxq);
+        iwm_fw_loader_bind_tx(&g_loader, &g_tx);
         g_attached = 1;
-    } else
+    } else {
+        iwm_tx_free(&g_tx);
         iwm_rx_free(&g_rxq);
+    }
     return rc;
 }
 
@@ -236,13 +254,25 @@ static int start_init_firmware(void)
         (ULONG)g_loader.last_fh_int, (ULONG)g_loader.last_load_status,
         (ULONG)iwm_m1_irq_count, (ULONG)g_rxq.packets,
         (ULONG)g_rxq.malformed, (ULONG)g_rxq.last_closed);
-    if (rc != IWM_OK)
+    if (rc != IWM_OK) {
         dprintf(0,
             "iwm: dbg trg %08lx direct %08lx gp %08lx rfh cfg %08lx act %08lx widx %08lx ridx %08lx stts %08lx\n",
             (ULONG)g_rxq.widx_readback, (ULONG)g_rxq.widx_direct,
             (ULONG)g_loader.last_gp_cntrl, (ULONG)g_loader.last_rfh[0],
             (ULONG)g_loader.last_rfh[1], (ULONG)g_loader.last_rfh[2],
             (ULONG)g_loader.last_rfh[3], (ULONG)g_loader.last_rfh[4]);
+        dprintf(0,
+            "iwm: txdbg state %u/%u/%u kw %08lx cbbc %08lx fh0 %08lx fh7 %08lx chick %08lx scdbase %08lx bc %08lx fact %08lx rd %08lx wr %08lx st %08lx hbus %08lx\n",
+            (unsigned)g_loader.last_tx_state[0],
+            (unsigned)g_loader.last_tx_state[1],
+            (unsigned)g_loader.last_tx_state[2],
+            (ULONG)g_loader.last_tx[0], (ULONG)g_loader.last_tx[1],
+            (ULONG)g_loader.last_tx[2], (ULONG)g_loader.last_tx[3],
+            (ULONG)g_loader.last_tx[4], (ULONG)g_loader.last_tx[5],
+            (ULONG)g_loader.last_tx[6], (ULONG)g_loader.last_tx[7],
+            (ULONG)g_loader.last_tx[8], (ULONG)g_loader.last_tx[9],
+            (ULONG)g_loader.last_tx[10], (ULONG)g_loader.last_tx[11]);
+    }
     if (g_loader.alive_notification)
         dprintf(0, "iwm: alive status %04x flags %04x lmac %08lx.%08lx\n",
                 g_rxq.alive.status, g_rxq.alive.flags,
