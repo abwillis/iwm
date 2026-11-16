@@ -5,6 +5,8 @@
 #include "iwm_hw.h"
 #include "iwm_transport.h"
 
+struct iwm_rx_queue;
+
 /* The service-channel transfer buffer is deliberately small.  It remains
  * below iwm_blob_read()'s 16-bit length limit and below FH's 128 KiB limit. */
 #define IWM_FW_DMA_CHUNK_SIZE       16384U
@@ -26,6 +28,7 @@ enum iwm_fw_load_stage {
 
 struct iwm_fw_loader {
     struct iwm_adapter *adapter;
+    struct iwm_rx_queue *rxq;
     struct iwm_dma_block bounce;
     volatile uint32_t irq_cause;
     uint32_t loaded_bytes;
@@ -37,10 +40,13 @@ struct iwm_fw_loader {
     uint16_t stage;
     int32_t last_error;
     uint8_t alive_interrupt;
+    uint8_t alive_notification;
 };
 
 void iwm_fw_loader_init(struct iwm_fw_loader *loader,
                         struct iwm_adapter *adapter);
+void iwm_fw_loader_bind_rx(struct iwm_fw_loader *loader,
+                           struct iwm_rx_queue *queue);
 int iwm_fw_loader_alloc(struct iwm_fw_loader *loader);
 void iwm_fw_loader_free(struct iwm_fw_loader *loader);
 
@@ -48,9 +54,9 @@ void iwm_fw_loader_free(struct iwm_fw_loader *loader);
 void iwm_fw_loader_note_irq(struct iwm_fw_loader *loader, uint32_t cause);
 
 /* Load either IWM_FW_SEC_INIT or IWM_FW_SEC_RUNTIME through the FH service
- * channel.  Success requires the early firmware ALIVE interrupt.  This still
- * does not promote firmware to RUNNING: a real ALIVE RX notification must be
- * parsed by the notification queue first. */
+ * channel. Success requires a validated ALIVE packet from the RFH receive
+ * queue; the CSR ALIVE bit remains diagnostic only. INIT ALIVE does not by
+ * itself promote the adapter to RUNNING. */
 int iwm_fw_loader_start(struct iwm_fw_loader *loader, uint8_t image_flag);
 
 /* Exposed for deterministic tests and diagnostics.  Returns 1 for CPU1, 2 for

@@ -1,10 +1,10 @@
 #====================================================================
 # Unit tests, built as OS/2 ring-3 programs (no driver, no hardware).
-#   wmake -f makefile.wat test          build, run and summarise every test
-#   wmake -f makefile.wat testbuild     build the tests only
-#   wmake -f makefile.wat run_test_bar  build and run one test
-#   wmake -f makefile.wat test_bar.exe  build one test
-#   wmake -f makefile.wat testclean     delete test programs, logs, results
+#   wmake -f makefile.test test          build, run and summarise every test
+#   wmake -f makefile.test testbuild     build the tests only
+#   wmake -f makefile.test run_test_bar  build and run one test
+#   wmake -f makefile.test test_bar.exe  build one test
+#   wmake -f makefile.test testclean     delete test programs, logs, results
 # A test that fails to compile or link is reported as NOT BUILT and the
 # remaining tests still run. Each test writes test_NAME.log.
 # Insert this block before the Housekeeping section. It uses WATCOM, CC,
@@ -20,11 +20,11 @@ CF_T  = -q -bt=os2 -zq -w3 -6s -zp4 -d__OS2__ -bm -od -d1 $(INC_T)
 TCC   = $(CC) $(CF_T)
 TCORE_OBJS = t_devices.obj t_crc32.obj t_fw_stream.obj t_fw_image.obj &
               t_fw_loader.obj t_transport.obj t_bar.obj t_hw.obj &
-              t_rings.obj t_genmac.obj t_ndis.obj t_os2ioctl.obj t_os2adapter.obj
+               t_rings.obj t_rx.obj t_genmac.obj t_ndis.obj t_os2ioctl.obj t_os2adapter.obj
 TEST_EXES = test_core.exe test_fw_fixes.exe test_fw_image.exe test_transport.exe &
-            test_oid.exe test_os2_adapter.exe test_bar.exe test_fw_loader.exe
+             test_oid.exe test_os2_adapter.exe test_bar.exe test_fw_loader.exe test_rx.exe
 RUN_TESTS = run_test_core run_test_fw_fixes run_test_fw_image run_test_transport &
-            run_test_oid run_test_os2_adapter run_test_bar run_test_fw_loader
+             run_test_oid run_test_os2_adapter run_test_bar run_test_fw_loader run_test_rx
 testbuild: .SYMBOLIC $(TEST_EXES)
 testinit: .SYMBOLIC
     @if exist testpass.txt del testpass.txt
@@ -74,6 +74,9 @@ t_hw.obj: core\iwm_hw.c .AUTODEPEND
 t_rings.obj: core\iwm_rings.c .AUTODEPEND
     @if exist $@ del $@
     -$(TCC) -fo=$@ core\iwm_rings.c
+t_rx.obj: core\iwm_rx.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_rx.c
 t_genmac.obj: core\iwm_genmac.c .AUTODEPEND
     @if exist $@ del $@
     -$(TCC) -fo=$@ core\iwm_genmac.c
@@ -185,6 +188,18 @@ run_test_fw_loader: .SYMBOLIC test_fw_loader.exe
     @if exist test_fw_loader.exe test_fw_loader.exe > test_fw_loader.log 2>&1 && echo test_fw_loader>> testpass.txt || echo test_fw_loader>> testfail.txt
     @if not exist test_fw_loader.exe echo test_fw_loader>> testnobld.txt
     @if exist test_fw_loader.log type test_fw_loader.log
+tm_rx.obj: tests\test_rx.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_rx.exe del test_rx.exe
+    -$(TCC) -fo=$@ tests\test_rx.c
+test_rx.exe: tm_rx.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_rx.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+run_test_rx: .SYMBOLIC test_rx.exe
+    @if exist test_rx.log del test_rx.log
+    @if exist test_rx.exe test_rx.exe > test_rx.log 2>&1 && echo test_rx>> testpass.txt || echo test_rx>> testfail.txt
+    @if not exist test_rx.exe echo test_rx>> testnobld.txt
+    @if exist test_rx.log type test_rx.log
 testclean: .SYMBOLIC
     @if exist tm_*.obj del tm_*.obj
     @if exist t_*.obj del t_*.obj

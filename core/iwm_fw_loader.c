@@ -6,6 +6,7 @@
 #include <string.h>
 #endif
 #include "iwm_fw_loader.h"
+#include "iwm_rx.h"
 
 #define CSR_INT                         0x008UL
 #define CSR_INT_MASK                    0x00cUL
@@ -113,6 +114,12 @@ void iwm_fw_loader_init(struct iwm_fw_loader *l, struct iwm_adapter *a)
     l->adapter = a;
     l->stage = IWM_FWLS_IDLE;
     l->last_error = IWM_OK;
+}
+
+void iwm_fw_loader_bind_rx(struct iwm_fw_loader *l, struct iwm_rx_queue *q)
+{
+    if (l)
+        l->rxq = q;
 }
 
 int iwm_fw_loader_alloc(struct iwm_fw_loader *l)
@@ -359,6 +366,7 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     l->last_dst = 0;
     l->last_error = IWM_OK;
     l->alive_interrupt = 0;
+    l->alive_notification = 0;
     l->irq_cause = 0;
     l->last_csr_int = 0;
     l->last_fh_int = 0;
@@ -368,6 +376,15 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     if (rc != IWM_OK)
         return fail_load(l, rc);
     l->stage = IWM_FWLS_PREPARED;
+
+    /* The 9000-family firmware delivers ALIVE through RFH queue 0.  Program
+     * the queue before either secure CPU is released; otherwise firmware has
+     * nowhere to DMA the notification and boot appears to time out. */
+    if (!l->rxq)
+        return fail_load(l, IWM_ESTATE);
+    rc = iwm_rx_program(l->rxq);
+    if (rc != IWM_OK)
+        return fail_load(l, rc);
 
     wr(l, CSR_INT_MASK, 0);
     wr(l, CSR_INT, 0xffffffffUL);
@@ -401,12 +418,13 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     }
     l->stage = IWM_FWLS_RELEASED;
 
-    /* This bit is useful bring-up evidence, but is not a substitute for the
-     * ALIVE command in the RX notification queue.  Keep the session LOADING. */
-    rc = wait_cause(l, IWM_CSR_INT_ALIVE, IWM_FW_ALIVE_TIMEOUT_US);
+    /* The CSR ALIVE cause is useful evidence but is not the protocol result.
+     * Validate the ALIVE command DMAed into queue 0.  The ISR may acknowledge
+     * CSR causes while this bounded task-time loop observes coherent DMA. */
+    rc = iwm_rx_wait_alive(l->rxq, IWM_FW_ALIVE_TIMEOUT_US);
     if (rc != IWM_OK)
         return fail_load(l, rc);
-    l->alive_interrupt = 1;
+    l->alive_notification = 1;
     l->stage = IWM_FWLS_ALIVE_IRQ;
     l->last_csr_int = rd(l, CSR_INT);
     l->last_fh_int = rd(l, CSR_FH_INT_STATUS);

@@ -2,7 +2,7 @@
 
 Experimental source scaffold for a native OS/2/ArcaOS NDIS Wi-Fi driver for the Intel `iwm` device families, with the Intel Dual Band Wireless-AC 9560 as the primary target.
 
-**This remains a development driver, not a complete Wi-Fi driver.** It identifies the OS/2 boundaries, implements a tested device table, firmware-transfer protocol, core state machines, the XWLAN/GenMAC discovery and status surface observed in the supplied trace, OS/2 Resource Manager registration, and the 8000/9000 FH service-channel section loader. The loader DMA-copies INIT sections and now fails the transfer when the early ALIVE interrupt times out; it keeps firmware in `LOADING` until an RX notification queue parses the ALIVE command. Command/notification rings, NVM/PHY commands, runtime transition, firmware scan commands, association, key installation and NDIS packet I/O remain target milestones.
+**This remains a development driver, not a complete Wi-Fi driver.** It identifies the OS/2 boundaries, implements a tested device table, firmware-transfer protocol, core state machines, the XWLAN/GenMAC discovery and status surface observed in the supplied trace, OS/2 Resource Manager registration, the 8000/9000 FH service-channel section loader, and the 9560 RFH queue-0 receive transport needed for ALIVE. The loader DMA-copies INIT sections and now requires a validated ALIVE packet in host memory; it keeps INIT firmware in `LOADING` until the command/NVM/runtime sequence is implemented. Command TX, NVM/PHY commands, runtime transition, firmware scan commands, association, key installation and NDIS packet I/O remain target milestones.
 
 ## Primary 9560 target
 
@@ -16,7 +16,7 @@ The project also includes IDs/configuration aliases for the 3160, 3165, 3168, 72
 - `os2/` — OS/2-only boundary for DevHelp, PCI, selectors, interrupt registration, request packets and MultiMac NDIS glue.
 - `tools/iwmfwld.c` — ring-3 firmware loader. It computes CRC32 and transfers the selected Intel `.ucode` file with BEGIN/DATA/COMMIT IOCTLs instead of embedding a large image in a 16-bit data segment.
 - `install/` — CONFIG.SYS, PROTOCOL.INI, NIF and STARTUP.CMD templates.
-- `tests/` — host-side tests for device matching, the firmware protocol, ring sizing and GenMAC discovery.
+- `tests/` — host-side tests for device matching, the firmware protocol, ring sizing, RFH RX/ALIVE and GenMAC discovery.
 
 ## XWLAN and wpa_supplicant contract
 
@@ -48,17 +48,17 @@ This does not build an OS/2 driver. It verifies the portable core before target 
 2. Use `Microsoft Copilot Chat Files/OS2Stuff`, starting with `COPILOT_OS2_START_HERE`, as the OS/2 reference; miniddk takes precedence over ddk. `MMROOT` is not used.
 3. Run `build-ring3.cmd` to build `IWMFWLD.EXE`.
 4. Implement the callbacks in `include/iwm_os2_adapter.h` from verified miniddk declarations. MultiMac and MultiMac1 are historical OS/2 pattern references only, not includes, link inputs or build prerequisites. See `docs/REFACTOR.md`.
-5. Build the 16-bit MAC driver using the same segment/link layout as a complete MultiMac driver, not the incomplete `multimac/iwl` shell.
+5. Build the mixed 16/32-bit Drv32 driver with `wmake -f makefile.wat driver`; the supplied link file keeps the 16-bit strategy header and 32-bit core segments separate.
 
 ## First useful hardware milestone
 
 1. Enumerate a supported PCI function and map BAR0.
 2. Disable PCI retry timeout byte `0x41`, enable bus mastering, register legacy INTx first.
 3. Read `CSR_HW_REV`, prepare the card and verify RF-kill state.
-4. Allocate ICT, RX free/status rings, one command TX queue, scheduler table, keep-warm page and firmware DMA bounce buffer.
+4. Allocate the RFH RX free/used/status rings, 4 KiB receive buffers, and firmware DMA bounce buffer. **Implemented for queue 0.**
 5. Make `IWMFWLD.EXE` transfer a real firmware file and parse its TLVs. **Done.**
-6. Load INIT sections through FH DMA and require the firmware-load/early-ALIVE interrupt. **Implemented; the supplied target log times out and the extended register snapshot needs a new target run.**
-7. Program the RX notification and command queues, parse the ALIVE command, then read NVM and send PHY configuration.
+6. Load INIT sections through FH DMA. **Implemented; the supplied target log transfers all nine sections.**
+7. Program RFH queue 0 before CPU release and validate the ALIVE command. **Implemented; target validation is required.** Then add the command queue, read NVM and send PHY configuration.
 8. Stop INIT firmware, load runtime firmware, and validate runtime ALIVE.
 9. Add scan commands/results, then association and WPA2 keys, then packet I/O.
 
@@ -67,6 +67,8 @@ The supplied XWLAN trace analysis and Resource Manager lifecycle are documented
 in `docs/XWLAN_RESOURCE_MANAGER.md`.
 The current WRND32$ trace, exact OID counts and timeout corrections are documented
 in `docs/WRND32_LOG_ANALYSIS.md`.
+The receive-queue diagnosis, register sequence and new target diagnostics are in
+`docs/M3_RX_ALIVE.md`.
 
 
 

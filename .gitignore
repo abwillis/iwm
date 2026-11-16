@@ -7,3 +7,4 @@ build/
 *.exe
 *.os2
 *.lnk
+*.log

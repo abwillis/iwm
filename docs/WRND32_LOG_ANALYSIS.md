@@ -1,25 +1,27 @@
 # WRND32$ log analysis and implemented corrections
 
-The supplied `iwm.txt` contains 935 lines, including 875 complete GenMAC
-requests (866 GET and 9 SET requests).  Hardware discovery, BAR mapping,
+The supplied `iwm.txt` contains 940 lines, including 874 complete GenMAC
+requests (865 GET and 9 SET requests). Hardware discovery, BAR mapping,
 Resource Manager registration, MSI allocation, firmware transfer and every FH
 section DMA completed.  The decisive failure is the final firmware hand-off:
 
 ```text
-iwm: init load rc 0 stage 5 sections 9 bytes 548520 dst 80454000 aliveirq 0
+iwm: init load rc -6 stage 7 sections 9 bytes 548520 dst 80454000 aliveirq 0 csr 08000000 fh 00000001 load ffffffff ints 1
 ```
 
-The old loader returned success after an ALIVE timeout.  It therefore left the
-firmware session in `LOADING`, while XWLAN repeatedly attempted requests that
-require a running firmware image.
+The corrected loader now fails closed after the ALIVE timeout. The status value
+`ffffffff` shows that both CPU load-status halves were committed. The missing
+piece is the receive queue through which 9000-family firmware DMA-delivers the
+ALIVE notification.
 
 ## GenMAC failures in the trace
 
 | OID | Operation | Count | Old result | Meaning |
 |---|---:|---:|---|---|
-| `0x0d01011b` | GET encryption status | 169 | `IWM_ENOTSUP` / `NDIS_STATUS_NOT_SUPPORTED` | XWLAN's status query stops before reading the BSSID. |
-| `0x0d01011a` | SET BSSID-list scan | 9 | `IWM_ESTATE` / `NDIS_STATUS_ADAPTER_NOT_READY` | Correct while firmware has not reported ALIVE. |
-| `0x01010102` | GET current 802.3 address | 1 | `IWM_ENOTSUP` / `NDIS_STATUS_NOT_SUPPORTED` | This is `OID_802_3_CURRENT_ADDRESS`, not `OID_GEN_HARDWARE_STATUS`; its six-byte buffer confirms the interpretation. |
+| `0x0d01011a` | SET BSSID-list scan | 8 | `IWM_ESTATE` / `NDIS_STATUS_ADAPTER_NOT_READY` | Correct while firmware has not reported ALIVE. |
+
+All other 866 requests succeed. In particular, the one six-byte
+`OID_802_3_CURRENT_ADDRESS` query succeeds after attach.
 
 ## Corrections in this tree
 
@@ -41,17 +43,20 @@ require a running firmware image.
   serializer are implemented.  Firmware notification code can add validated
   results with `iwm_genmac_scan_add()` and complete a scan with
   `iwm_genmac_scan_complete()`.
+- The 9000-family RFH queue-0 free/used/status rings and 512 aligned receive
+  buffers are allocated and programmed before secure CPU release. The loader
+  now accepts only a well-formed ALIVE packet with status `0xcafe`.
 
 ## Remaining target-only boundary
 
-The supplied trace proves that the card never reaches firmware ALIVE.  No
-source-only change can certify the missing target sequence without another
-hardware run.  The next log must include the extended INIT-load line.  Its
-`csr`, `fh`, and `load` values distinguish an interrupt-delivery problem from
-a secure-CPU/load-status problem.
+The supplied trace proves that the old tree never gave firmware an RX DMA
+destination. No source-only validation can certify the RFH register sequence;
+the next hardware log must show `aliventf 1`, an RX packet count, and ALIVE
+status `cafe`.
 
-Until ALIVE succeeds, the driver must not fabricate a MAC address, scan
-results, association, key installation, or packet traffic.  After ALIVE, the
-remaining target path is: program the RX notification queue; parse ALIVE; read
-NVM and install the MAC address; load and validate runtime firmware; issue and
-parse scan commands; then implement association, key commands and NDIS TX/RX.
+Until ALIVE succeeds, the driver must not fabricate scan results, association,
+key installation, or packet traffic. The factory MAC is already obtained from
+the OTP CSR registers. After INIT ALIVE, the remaining target path is: build
+the command queue; read NVM and send PHY configuration; load and validate
+runtime firmware; issue and parse scan commands; then implement association,
+key commands and NDIS TX/RX.

@@ -4,6 +4,7 @@
 #include "Dev32lib.h"
 #include "iwm_hw.h"
 #include "iwm_fw_loader.h"
+#include "iwm_rx.h"
 #include "iwm_os2.h"
 #include "iwm_d32.h"
 
@@ -168,6 +169,7 @@ static struct iwm_adapter g_ad;
 static struct iwm_scan_cache g_scan;
 static struct iwm_blob g_store;
 static struct iwm_fw_loader g_loader;
+static struct iwm_rx_queue g_rxq;
 static int g_attached;
 
 int iwm_d32_fw_attach(void)
@@ -193,12 +195,24 @@ int iwm_d32_fw_attach(void)
                 g_ad.mac[0], g_ad.mac[1], g_ad.mac[2],
                 g_ad.mac[3], g_ad.mac[4], g_ad.mac[5]);
     }
+    iwm_rx_init(&g_rxq, &g_ad);
+    rc = iwm_rx_alloc(&g_rxq);
+    if (rc != IWM_OK) {
+        dprintf(0, "iwm: rx alloc rc %d\n", rc);
+        return rc;
+    }
+    dprintf(0, "iwm: rxq free %08lx used %08lx status %08lx buffers %08lx/%lu\n",
+            (ULONG)g_rxq.free_desc.paddr, (ULONG)g_rxq.used_desc.paddr,
+            (ULONG)g_rxq.status.paddr, (ULONG)g_rxq.buffers.paddr,
+            (ULONG)g_rxq.buffers.size);
     iwm_blob_bind(&g_store, &g_store_ops, 0);
     rc = iwm_adapter_set_fw_store(&g_ad, &g_store);
     if (rc == IWM_OK) {
         iwm_fw_loader_init(&g_loader, &g_ad);
+        iwm_fw_loader_bind_rx(&g_loader, &g_rxq);
         g_attached = 1;
-    }
+    } else
+        iwm_rx_free(&g_rxq);
     return rc;
 }
 
@@ -214,12 +228,19 @@ static int start_init_firmware(void)
 
     rc = iwm_fw_loader_start(&g_loader, IWM_FW_SEC_INIT);
     dprintf(0,
-        "iwm: init load rc %d stage %lu sections %lu bytes %lu dst %08lx aliveirq %lu csr %08lx fh %08lx load %08lx ints %lu\n",
+        "iwm: init load rc %d stage %lu sections %lu bytes %lu dst %08lx aliveirq %lu aliventf %lu csr %08lx fh %08lx load %08lx ints %lu rx %lu bad %lu closed %lu\n",
         rc, (ULONG)g_loader.stage, (ULONG)g_loader.loaded_sections,
         (ULONG)g_loader.loaded_bytes, (ULONG)g_loader.last_dst,
-        (ULONG)g_loader.alive_interrupt, (ULONG)g_loader.last_csr_int,
+        (ULONG)g_loader.alive_interrupt, (ULONG)g_loader.alive_notification,
+        (ULONG)g_loader.last_csr_int,
         (ULONG)g_loader.last_fh_int, (ULONG)g_loader.last_load_status,
-        (ULONG)iwm_m1_irq_count);
+        (ULONG)iwm_m1_irq_count, (ULONG)g_rxq.packets,
+        (ULONG)g_rxq.malformed, (ULONG)g_rxq.last_closed);
+    if (g_loader.alive_notification)
+        dprintf(0, "iwm: alive status %04x flags %04x lmac %08lx.%08lx\n",
+                g_rxq.alive.status, g_rxq.alive.flags,
+                (ULONG)g_rxq.alive.lmac_major,
+                (ULONG)g_rxq.alive.lmac_minor);
     return rc;
 }
 
