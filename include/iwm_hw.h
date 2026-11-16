@@ -6,6 +6,8 @@
 #include "iwm_pci_ids.h"
 #include "iwm_fw_proto.h"
 
+struct iwm_scan_cache;
+
 #define IWM_TX_RING_COUNT        256U
 #define IWM_RX_LEGACY_RING_COUNT 256U
 #define IWM_RX_MQ_RING_COUNT     512U
@@ -66,11 +68,18 @@ struct iwm_adapter {
     int32_t rssi_dbm;
     uint32_t status_generation;
     uint32_t infrastructure_mode;
+    uint32_t authentication_mode;
+    uint32_t encryption_status;
+    uint32_t privacy_filter;
+    uint32_t power_mode;
+    uint32_t network_type;
     uint8_t connected;
+    uint8_t mac_valid;
     uint8_t mac[6];
     uint8_t bssid[6];
     uint8_t ssid[32];
     uint8_t ssid_length;
+    struct iwm_scan_cache *scan_cache;
     struct iwm_fw_session firmware;
     struct iwm_ring_plan ring_plan;
     struct iwm_dma_block tx_desc;
@@ -93,12 +102,21 @@ void iwm_free_rings(struct iwm_adapter *adapter);
 /* Called from deferred interrupt work when the runtime ALIVE notification
  * arrives; moves firmware LOADING -> RUNNING and the adapter to READY. */
 int iwm_adapter_fw_alive(struct iwm_adapter *adapter);
+/* Read the factory MAC address from the CSR window at csr_base (Linux
+ * mac_addr_from_csr, 0x380 for the 9000 family): STRAP registers first, the
+ * OTP registers when STRAP is not a valid unicast address. On success the
+ * address is installed with iwm_adapter_set_mac(). raw[4] receives the four
+ * register values (STRAP0, STRAP1, OTP0, OTP1) for diagnostics; may be NULL. */
+int iwm_adapter_read_csr_mac(struct iwm_adapter *adapter, uint32_t csr_base,
+                             uint32_t raw[4]);
 /* Bind the OS-owned physical firmware store. A non-NULL store may only be
  * bound while no image is in flight; NULL always unbinds and resets the
  * firmware session (used by detach after iwm_stop_device). */
 int iwm_adapter_set_fw_store(struct iwm_adapter *adapter,
                              struct iwm_blob *store);
+int iwm_adapter_set_mac(struct iwm_adapter *adapter, const uint8_t mac[6]);
 
 #endif
+
 
 

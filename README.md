@@ -2,7 +2,7 @@
 
 Experimental source scaffold for a native OS/2/ArcaOS NDIS Wi-Fi driver for the Intel `iwm` device families, with the Intel Dual Band Wireless-AC 9560 as the primary target.
 
-**This remains a development driver, not a complete Wi-Fi driver.** It identifies the OS/2 boundaries, implements a tested device table, firmware-transfer protocol, core state machines, the XWLAN/GenMAC discovery and status surface observed in the supplied trace, OS/2 Resource Manager registration, and the 8000/9000 FH service-channel section loader. The loader now DMA-copies INIT sections and records the early ALIVE interrupt, but deliberately keeps firmware in `LOADING` until an RX notification queue parses the ALIVE command. Command/notification rings, NVM/PHY commands, runtime transition, scan completion, association, key installation and NDIS packet I/O remain milestones.
+**This remains a development driver, not a complete Wi-Fi driver.** It identifies the OS/2 boundaries, implements a tested device table, firmware-transfer protocol, core state machines, the XWLAN/GenMAC discovery and status surface observed in the supplied trace, OS/2 Resource Manager registration, and the 8000/9000 FH service-channel section loader. The loader DMA-copies INIT sections and now fails the transfer when the early ALIVE interrupt times out; it keeps firmware in `LOADING` until an RX notification queue parses the ALIVE command. Command/notification rings, NVM/PHY commands, runtime transition, firmware scan commands, association, key installation and NDIS packet I/O remain target milestones.
 
 ## Primary 9560 target
 
@@ -20,7 +20,7 @@ The project also includes IDs/configuration aliases for the 3160, 3165, 3168, 72
 
 ## XWLAN and wpa_supplicant contract
 
-The device exposes `WRND32$`, matching the GenMAC DIM used by XWLAN. Category `0x99`, functions `0x40/0x41`, carry OID GET/SET requests. The driver implements the private wrapper discovery OIDs plus hardware status, infrastructure mode, SSID/BSSID/RSSI, power mode, media state and link speed. Scan, authentication, encryption, disassociation and key OIDs remain gated by their hardware milestones.
+The device exposes `WRND32$`, matching the GenMAC DIM used by XWLAN. Category `0x99`, functions `0x40/0x41`, carry OID GET/SET requests. The driver implements the private wrapper discovery OIDs plus hardware status, current/permanent address, infrastructure mode, SSID/BSSID/RSSI, staged authentication/encryption/privacy policy, power mode, media state, link speed and `NDIS_802_11_BSSID_LIST_EX` serialization. A validated MAC address, hardware scan initiation/results, disassociation, association and key OIDs remain gated by their hardware milestones.
 
 XWLAN starts and controls the OS/2 `wpa_supplicant`. EAPOL frames must pass through the normal NDIS transmit/receive path. WPA2 cannot work until `OID_802_11_ADD_KEY`/`REMOVE_KEY`, station commands and hardware crypto setup are completed.
 
@@ -57,7 +57,7 @@ This does not build an OS/2 driver. It verifies the portable core before target 
 3. Read `CSR_HW_REV`, prepare the card and verify RF-kill state.
 4. Allocate ICT, RX free/status rings, one command TX queue, scheduler table, keep-warm page and firmware DMA bounce buffer.
 5. Make `IWMFWLD.EXE` transfer a real firmware file and parse its TLVs. **Done.**
-6. Load INIT sections through FH DMA and capture firmware-load/early-ALIVE interrupts. **Implemented; target validation required.**
+6. Load INIT sections through FH DMA and require the firmware-load/early-ALIVE interrupt. **Implemented; the supplied target log times out and the extended register snapshot needs a new target run.**
 7. Program the RX notification and command queues, parse the ALIVE command, then read NVM and send PHY configuration.
 8. Stop INIT firmware, load runtime firmware, and validate runtime ALIVE.
 9. Add scan commands/results, then association and WPA2 keys, then packet I/O.
@@ -65,5 +65,8 @@ This does not build an OS/2 driver. It verifies the portable core before target 
 See `docs/ROADMAP.md` for acceptance tests and `docs/REFERENCE_MAP.md` for exact source paths used.
 The supplied XWLAN trace analysis and Resource Manager lifecycle are documented
 in `docs/XWLAN_RESOURCE_MANAGER.md`.
+The current WRND32$ trace, exact OID counts and timeout corrections are documented
+in `docs/WRND32_LOG_ANALYSIS.md`.
+
 
 

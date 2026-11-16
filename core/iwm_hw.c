@@ -68,6 +68,11 @@ void iwm_adapter_init(struct iwm_adapter *a,
     a->state = IWM_ADAPTER_DOWN;
     a->rssi_dbm = -200;
     a->infrastructure_mode = IWM_INFRASTRUCTURE_BSS;
+    a->authentication_mode = IWM_AUTH_AUTO;
+    a->encryption_status = IWM_ENCRYPTION_DISABLED;
+    a->privacy_filter = IWM_PRIVACY_ACCEPT_ALL;
+    a->power_mode = 0; /* Ndis802_11PowerModeCAM */
+    a->network_type = IWM_NETWORK_TYPE_OFDM24;
     iwm_fw_session_init(&a->firmware, NULL);
 }
 
@@ -84,6 +89,57 @@ int iwm_adapter_set_fw_store(struct iwm_adapter *a, struct iwm_blob *store)
         return IWM_EBUSY;
     iwm_fw_session_init(&a->firmware, store);
     return IWM_OK;
+}
+
+int iwm_adapter_set_mac(struct iwm_adapter *a, const uint8_t mac[6])
+{
+    unsigned i;
+    uint8_t any = 0;
+    if (!a || !mac || (mac[0] & 1U))
+        return IWM_EINVAL;
+    for (i = 0; i < 6; ++i)
+        any |= mac[i];
+    if (!any)
+        return IWM_EINVAL;
+    memcpy(a->mac, mac, sizeof(a->mac));
+    a->mac_valid = 1;
+    return IWM_OK;
+}
+
+/* Linux iwl_flip_hw_address(): the first register holds bytes 0-3 most
+ * significant first, the second holds bytes 4-5 in its low half. */
+static void flip_hw_address(uint32_t r0, uint32_t r1, uint8_t mac[6])
+{
+    mac[0] = (uint8_t)(r0 >> 24);
+    mac[1] = (uint8_t)(r0 >> 16);
+    mac[2] = (uint8_t)(r0 >> 8);
+    mac[3] = (uint8_t)r0;
+    mac[4] = (uint8_t)(r1 >> 8);
+    mac[5] = (uint8_t)r1;
+}
+
+int iwm_adapter_read_csr_mac(struct iwm_adapter *a, uint32_t base,
+                             uint32_t raw[4])
+{
+    uint32_t v[4];
+    uint8_t mac[6];
+
+    if (!a || !a->ops || !a->ops->mmio_read32 || base == 0 ||
+        base > 0x3FF0UL)
+        return IWM_EINVAL;
+    v[0] = rd(a, base + 0x08UL);   /* MAC_ADDR0_STRAP */
+    v[1] = rd(a, base + 0x0CUL);   /* MAC_ADDR1_STRAP */
+    v[2] = rd(a, base + 0x00UL);   /* MAC_ADDR0_OTP */
+    v[3] = rd(a, base + 0x04UL);   /* MAC_ADDR1_OTP */
+    if (raw)
+        memcpy(raw, v, sizeof(v));
+    flip_hw_address(v[0], v[1], mac);
+    if (iwm_adapter_set_mac(a, mac) == IWM_OK)
+        return IWM_OK;
+    flip_hw_address(v[2], v[3], mac);
+    if (iwm_adapter_set_mac(a, mac) == IWM_OK)
+        return IWM_OK;
+    return IWM_ENODEV;
 }
 
 int iwm_adapter_probe(struct iwm_adapter *a, uint16_t vendor,
@@ -206,5 +262,6 @@ int iwm_adapter_fw_alive(struct iwm_adapter *a)
     ++a->status_generation;
     return IWM_OK;
 }
+
 
 

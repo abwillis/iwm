@@ -30,6 +30,9 @@ struct iwm_fw_loader {
     volatile uint32_t irq_cause;
     uint32_t loaded_bytes;
     uint32_t last_dst;
+    uint32_t last_csr_int;
+    uint32_t last_fh_int;
+    uint32_t last_load_status;
     uint16_t loaded_sections;
     uint16_t stage;
     int32_t last_error;
@@ -45,7 +48,7 @@ void iwm_fw_loader_free(struct iwm_fw_loader *loader);
 void iwm_fw_loader_note_irq(struct iwm_fw_loader *loader, uint32_t cause);
 
 /* Load either IWM_FW_SEC_INIT or IWM_FW_SEC_RUNTIME through the FH service
- * channel.  This function performs DMA and releases the secure CPUs, but it
+ * channel.  Success requires the early firmware ALIVE interrupt.  This still
  * does not promote firmware to RUNNING: a real ALIVE RX notification must be
  * parsed by the notification queue first. */
 int iwm_fw_loader_start(struct iwm_fw_loader *loader, uint8_t image_flag);
@@ -56,4 +59,5 @@ int iwm_fw_section_cpu(const struct iwm_fw_image *image, uint16_t index,
                        uint8_t image_flag);
 
 #endif
+
 

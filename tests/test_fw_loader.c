@@ -17,6 +17,7 @@
 struct mock_hw {
     uint32_t regs[2048];
     unsigned transfers;
+    int signal_alive;
 };
 
 struct mem_store {
@@ -88,7 +89,8 @@ static void mock_write(void *p, uint32_t off, uint32_t value)
         ++m->transfers;
         m->regs[CSR_INT >> 2] |= IWM_CSR_INT_FH_TX;
     }
-    if (off == FH_UCODE_LOAD_STATUS && value == 0xffffffffUL)
+    if (off == FH_UCODE_LOAD_STATUS && value == 0xffffffffUL &&
+        m->signal_alive)
         m->regs[CSR_INT >> 2] |= IWM_CSR_INT_ALIVE;
 }
 
@@ -143,6 +145,7 @@ int main(void)
     memset(&ops, 0, sizeof(ops));
     memset(&ms, 0, sizeof(ms));
     memset(bytes, 0x5a, sizeof(bytes));
+    hw.signal_alive = 1;
     ops.mmio_read32 = mock_read;
     ops.mmio_write32 = mock_write;
     ops.delay_us = mock_delay;
@@ -198,8 +201,23 @@ int main(void)
     assert(hw.transfers == 2);
 
     iwm_fw_loader_free(&loader);
+
+    /* A missing early ALIVE is a load failure, not a successful COMMIT. */
+    hw.signal_alive = 0;
+    hw.regs[CSR_INT >> 2] = 0;
+    hw.regs[FH_UCODE_LOAD_STATUS >> 2] = 0;
+    a.firmware.state = IWM_FW_LOADING;
+    a.state = IWM_ADAPTER_FW_WAIT;
+    iwm_fw_loader_init(&loader, &a);
+    assert(iwm_fw_loader_start(&loader, IWM_FW_SEC_INIT) == IWM_ETIMEDOUT);
+    assert(loader.stage == IWM_FWLS_FAILED);
+    assert(loader.last_error == IWM_ETIMEDOUT);
+    assert(loader.alive_interrupt == 0);
+    assert(a.firmware.state == IWM_FW_FAILED);
+    iwm_fw_loader_free(&loader);
     iwm_blob_reset(&blob);
     puts("firmware loader tests passed");
     return 0;
 }
+
 

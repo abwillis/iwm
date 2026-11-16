@@ -70,6 +70,35 @@ int main(void)
     assert(fw.state == IWM_FW_READY);
     free(chunk);
 
+    /* Factory MAC from the CSR window (base 0x380). Values give the
+     * address Linux reported for this card: d4:3b:04:c3:04:74. */
+    {
+        uint32_t raw[4];
+        /* STRAP empty: fall back to OTP. */
+        hw.regs[0x388 >> 2 & 63] = 0;
+        hw.regs[0x38c >> 2 & 63] = 0;
+        hw.regs[0x380 >> 2 & 63] = 0xd43b04c3UL;
+        hw.regs[0x384 >> 2 & 63] = 0x00000474UL;
+        assert(iwm_adapter_read_csr_mac(&a, 0x380, raw) == IWM_OK);
+        assert(raw[2] == 0xd43b04c3UL && raw[3] == 0x474UL);
+        assert(a.mac_valid && a.mac[0] == 0xd4 && a.mac[1] == 0x3b &&
+               a.mac[2] == 0x04 && a.mac[3] == 0xc3 &&
+               a.mac[4] == 0x04 && a.mac[5] == 0x74);
+        /* A valid STRAP address wins over OTP. */
+        hw.regs[0x388 >> 2 & 63] = 0x02112233UL;
+        hw.regs[0x38c >> 2 & 63] = 0x00004455UL;
+        assert(iwm_adapter_read_csr_mac(&a, 0x380, NULL) == IWM_OK);
+        assert(a.mac[0] == 0x02 && a.mac[5] == 0x55);
+        /* Multicast or all-zero in both places is refused. */
+        a.mac_valid = 0;
+        hw.regs[0x388 >> 2 & 63] = 0x01000000UL;
+        hw.regs[0x380 >> 2 & 63] = 0;
+        hw.regs[0x384 >> 2 & 63] = 0;
+        assert(iwm_adapter_read_csr_mac(&a, 0x380, NULL) == IWM_ENODEV);
+        assert(!a.mac_valid);
+        assert(iwm_adapter_read_csr_mac(&a, 0, NULL) == IWM_EINVAL);
+    }
+
     memset(&oid, 0, sizeof(oid));
     oid.oid = OID_PRIVATE_WRAPPER_ISWIRELESS;
     oid.data = &value;

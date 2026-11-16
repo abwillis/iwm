@@ -1,6 +1,6 @@
 # XWLAN and Resource Manager integration
 
-## Evidence from the WRND32$ trace
+## Evidence from the earlier WRND32$ trace
 
 The supplied XWLAN run contains 880 GenMAC requests.  The IOCTL bridge is
 working, but three request families expose the next boundaries:
@@ -51,3 +51,7 @@ initialize the command queue, read NVM/MAC data, load runtime firmware, and
 implement scan commands/results before XWLAN can list access points.  Returning
 success before those operations would expose uninitialized DMA and invalid
 wireless state.
+
+The newer 935-line trace and its corrected interpretation are in
+`docs/WRND32_LOG_ANALYSIS.md`.  In particular, `0x01010102` is the six-byte
+`OID_802_3_CURRENT_ADDRESS`, not `OID_GEN_HARDWARE_STATUS`.

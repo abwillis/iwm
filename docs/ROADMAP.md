@@ -33,9 +33,12 @@
 - Return SSID, BSSID, RSSI, media state and link speed.
 - XWLAN lists the adapter and visible access points without traps or leaks.
 
-The XWLAN discovery/status bridge now covers hardware status and persisted
-infrastructure mode in addition to the private wrapper OIDs.  Scan remains
-gated until the RX notification queue validates firmware ALIVE.
+The XWLAN discovery/status bridge now covers hardware status, validated
+current/permanent MAC addresses, persisted infrastructure/authentication/
+encryption/privacy/power policy, and a bounded `NDIS_802_11_BSSID_LIST_EX`
+serializer in addition to the private wrapper OIDs.  Actual scan initiation
+and results remain gated until the RX notification queue validates firmware
+ALIVE and the firmware scan command is connected to the cache.
 
 ## M4 — open association
 
@@ -62,5 +65,6 @@ gated until the RX notification queue validates firmware ALIVE.
 ## Required diagnostics
 
 Keep a fixed-size event ring with sequence number, timestamp/tick, state, CSR interrupt cause, FH cause, command ID, queue/index and status. Provide a read-only IOCTL to copy a bounded snapshot to ring 3. Never format long strings in the ISR.
+
 
 

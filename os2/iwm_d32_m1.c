@@ -13,6 +13,9 @@
 #define CSR_HW_REV       0x028
 #define PCI_CMD          0x04
 #define PCI_CMD_INTX_DIS 0x0400
+/* MSI capability at 0xD0 on this 8086:a370 (lspci "Capabilities: [d0] MSI",
+ * 64-bit): control at +2, address low +4, address high +8, data +0x0C. */
+#define PCI_MSI_CAP      0xD0
 
 /* Exported for the strategy READ handler.             M1 read-out */
 volatile unsigned long iwm_m1_rc = 0xFFFFFFFFUL;
@@ -51,7 +54,8 @@ static int iwm_msi_isr(ULONG data)
     if (cause != 0 && cause != 0xFFFFFFFFUL)
         g_csr[CSR_INT / 4] = cause;          /* write-1-to-clear */
     g_last_cause = cause;
-    ++iwm_m1_irq_count;                               /* M1 read-out */
+    if (cause != 0 && cause != 0xFFFFFFFFUL)
+        ++iwm_m1_irq_count;                           /* M1 read-out */
     KernReleaseSpinLock(&g_lock);
     if (cause != 0 && cause != 0xFFFFFFFFUL)
         iwm_d32_irq_notify(cause);
@@ -121,6 +125,17 @@ int iwm_d32_m1(void)
     }
     dprintf(0, "iwm: MSI irq %lu installed; count %lu (expect 0)\n",
             g_irq, iwm_m1_irq_count);                 /* M1 read-out */
+    {
+        static USHORT msi_ctl, msi_data, pcmd;   /* static: see W112 note */
+        static ULONG msi_lo, msi_hi;
+        PciReadConfig(bdf, PCI_MSI_CAP + 2, 2, &msi_ctl);
+        PciReadConfig(bdf, PCI_MSI_CAP + 4, 4, &msi_lo);
+        PciReadConfig(bdf, PCI_MSI_CAP + 8, 4, &msi_hi);
+        PciReadConfig(bdf, PCI_MSI_CAP + 0x0C, 2, &msi_data);
+        PciReadConfig(bdf, PCI_CMD, 2, &pcmd);
+        dprintf(0, "iwm: msi ctl %04x addr %08lx:%08lx data %04x cmd %04x\n",
+                msi_ctl, msi_hi, msi_lo, msi_data, pcmd);
+    }
     return 0;  /* M1 passes; teardown path needs a verified UnSetIRQ */
 
 unregister:
@@ -132,5 +147,6 @@ unmap:
     g_csr = 0;
     return rc;
 }
+
 
 

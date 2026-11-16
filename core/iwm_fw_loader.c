@@ -9,6 +9,7 @@
 
 #define CSR_INT                         0x008UL
 #define CSR_INT_MASK                    0x00cUL
+#define CSR_FH_INT_STATUS               0x010UL
 #define CSR_UCODE_DRV_GP1_CLR           0x05cUL
 #define CSR_UCODE_SW_BIT_RFKILL         0x00000002UL
 #define CSR_UCODE_DRV_GP1_CMD_BLOCKED   0x00000004UL
@@ -325,6 +326,9 @@ static int load_cpu(struct iwm_fw_loader *l, uint8_t image_flag, int cpu)
 
 static int fail_load(struct iwm_fw_loader *l, int rc)
 {
+    l->last_csr_int = rd(l, CSR_INT);
+    l->last_fh_int = rd(l, CSR_FH_INT_STATUS);
+    l->last_load_status = rd(l, FH_UCODE_LOAD_STATUS);
     wr(l, CSR_INT_MASK, 0);
     l->last_error = rc;
     l->stage = IWM_FWLS_FAILED;
@@ -356,6 +360,9 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     l->last_error = IWM_OK;
     l->alive_interrupt = 0;
     l->irq_cause = 0;
+    l->last_csr_int = 0;
+    l->last_fh_int = 0;
+    l->last_load_status = 0;
 
     rc = iwm_prepare_card_hw(l->adapter);
     if (rc != IWM_OK)
@@ -397,10 +404,14 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     /* This bit is useful bring-up evidence, but is not a substitute for the
      * ALIVE command in the RX notification queue.  Keep the session LOADING. */
     rc = wait_cause(l, IWM_CSR_INT_ALIVE, IWM_FW_ALIVE_TIMEOUT_US);
-    if (rc == IWM_OK) {
-        l->alive_interrupt = 1;
-        l->stage = IWM_FWLS_ALIVE_IRQ;
-    }
+    if (rc != IWM_OK)
+        return fail_load(l, rc);
+    l->alive_interrupt = 1;
+    l->stage = IWM_FWLS_ALIVE_IRQ;
+    l->last_csr_int = rd(l, CSR_INT);
+    l->last_fh_int = rd(l, CSR_FH_INT_STATUS);
+    l->last_load_status = rd(l, FH_UCODE_LOAD_STATUS);
     return IWM_OK;
 }
+
 

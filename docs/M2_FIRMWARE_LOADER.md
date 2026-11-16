@@ -20,10 +20,15 @@ This avoids a false-ready state in which XWLAN could request scan while command 
 After `IWMFWLD.EXE` commits a valid API-46 image, the driver should print a line shaped like:
 
 ```
-iwm: init load rc 0 stage 7 sections 9 bytes N dst XXXXXXXX aliveirq 1
+iwm: init load rc 0 stage 6 sections 9 bytes N dst XXXXXXXX aliveirq 1 csr XXXXXXXX fh XXXXXXXX load XXXXXXXX
 ```
 
-The exact section and byte counts come from the image. `stage 6` with `aliveirq 0` means DMA section loading and CPU release completed but the early ALIVE bit was not observed within one second. Any negative `rc` is fail-closed: interrupts are masked, adapter state becomes ERROR, and the staged image is discarded.
+The exact section and byte counts come from the image. `rc -6 stage 7` with
+`aliveirq 0` means DMA section loading and CPU release completed but the early
+ALIVE bit was not observed within one second.  The `csr`, `fh` and `load`
+fields preserve the failure-time CSR interrupt, FH interrupt and ucode load
+status registers.  Any negative `rc` is fail-closed: interrupts are masked,
+adapter state becomes ERROR, and the staged image is discarded.
 
 ## Next code slice
 
@@ -35,5 +40,6 @@ The exact section and byte counts come from the image. `stage 6` with `aliveirq 
 
 ## Validation
 
-Host-side validation is in `tests/test_fw_loader.c`. It checks CPU partitioning, runtime-paging exclusion, DMA transfer completion, early ALIVE capture, and the fail-safe rule that the firmware session remains `LOADING` without an RX ALIVE notification.
+Host-side validation is in `tests/test_fw_loader.c`. It checks CPU partitioning, runtime-paging exclusion, DMA transfer completion, early ALIVE capture, early-ALIVE timeout failure, and the fail-safe rule that the firmware session remains `LOADING` until an RX ALIVE notification is parsed.
+
 

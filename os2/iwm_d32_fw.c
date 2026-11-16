@@ -9,6 +9,8 @@
 
 #define IWM_VENDOR  0x8086
 #define IWM_DEVICE  0xA370
+/* Linux cfg/9000.c mac_addr_from_csr. */
+#define IWM_9000_MAC_CSR_BASE 0x380UL
 
 /* memcpy/memset come from Dev32lib.h (compiler intrinsics); the core files
  * use them the same way, so nothing is supplied here. */
@@ -163,6 +165,7 @@ static const struct iwm_os_ops g_ops = {
 };
 
 static struct iwm_adapter g_ad;
+static struct iwm_scan_cache g_scan;
 static struct iwm_blob g_store;
 static struct iwm_fw_loader g_loader;
 static int g_attached;
@@ -176,10 +179,20 @@ int iwm_d32_fw_attach(void)
     if (!iwm_d32_csr())
         return IWM_ENODEV;
     iwm_adapter_init(&g_ad, &g_ops, 0);
+    iwm_genmac_bind_scan_cache(&g_ad, &g_scan);
     rc = iwm_adapter_probe(&g_ad, IWM_VENDOR, IWM_DEVICE, 0,
                            (uint8_t)iwm_m1_irq);
     if (rc != IWM_OK)
         return rc;
+    {
+        static uint32_t raw[4];   /* static: see W112 note */
+        int mrc = iwm_adapter_read_csr_mac(&g_ad, IWM_9000_MAC_CSR_BASE, raw);
+        dprintf(0, "iwm: csr mac rc %d strap %08lx %08lx otp %08lx %08lx "
+                "addr %02x:%02x:%02x:%02x:%02x:%02x\n", mrc,
+                (ULONG)raw[0], (ULONG)raw[1], (ULONG)raw[2], (ULONG)raw[3],
+                g_ad.mac[0], g_ad.mac[1], g_ad.mac[2],
+                g_ad.mac[3], g_ad.mac[4], g_ad.mac[5]);
+    }
     iwm_blob_bind(&g_store, &g_store_ops, 0);
     rc = iwm_adapter_set_fw_store(&g_ad, &g_store);
     if (rc == IWM_OK) {
@@ -201,10 +214,12 @@ static int start_init_firmware(void)
 
     rc = iwm_fw_loader_start(&g_loader, IWM_FW_SEC_INIT);
     dprintf(0,
-        "iwm: init load rc %d stage %lu sections %lu bytes %lu dst %08lx aliveirq %lu\n",
+        "iwm: init load rc %d stage %lu sections %lu bytes %lu dst %08lx aliveirq %lu csr %08lx fh %08lx load %08lx ints %lu\n",
         rc, (ULONG)g_loader.stage, (ULONG)g_loader.loaded_sections,
         (ULONG)g_loader.loaded_bytes, (ULONG)g_loader.last_dst,
-        (ULONG)g_loader.alive_interrupt);
+        (ULONG)g_loader.alive_interrupt, (ULONG)g_loader.last_csr_int,
+        (ULONG)g_loader.last_fh_int, (ULONG)g_loader.last_load_status,
+        (ULONG)iwm_m1_irq_count);
     return rc;
 }
 
@@ -333,4 +348,5 @@ void iwm_d32_ioctl(REQPACKET *prp)
         break;
     }
 }
+
 
