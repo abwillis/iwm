@@ -48,6 +48,7 @@ struct iwm_rx_queue {
     uint8_t last_cmd;
     uint8_t last_group;
     uint32_t widx_readback;  /* RFH_Q0_FRBDCB_WIDX right after the trigger */
+    uint32_t widx_direct;    /* after a direct PRPH write; ~0 if not needed */
     struct iwm_rx_alive_info alive;
 };
 

@@ -21,6 +21,10 @@
 #define RFH_RXF_RXQ_ACTIVE            0x00a0980cUL
 #define RFH_GEN_CFG                   0x00a09800UL
 #define RFH_Q0_FRBDCB_WIDX_TRG        0x1c80UL
+/* Linux iwl_pcie_nic_init(): shadow registers must be enabled before the
+ * CSR shadow write-index trigger is forwarded to the RFH. */
+#define CSR_MAC_SHADOW_REG_CTRL       0x0a8UL
+#define CSR_MAC_SHADOW_REG_CTRL_ALL   0x800FFFFFUL
 #define RFH_RXF_DMA_RB_SIZE_4K        (4UL << 16)
 #define RFH_RXF_DMA_RBDCB_SIZE_512    (9UL << 20)
 #define RFH_RXF_DMA_MIN_RB_4_8        (3UL << 24)
@@ -80,8 +84,10 @@ static void desc_set(struct iwm_rx_queue *q, uint16_t slot, uint16_t rbid)
     uint32_t addr = q->buffers.paddr + (uint32_t)rbid * IWM_RX_BUFFER_SIZE;
 
     /* Pre-AX210 MQ descriptors are little-endian 64-bit values containing a
-     * 4 KiB-aligned DMA address and the virtual buffer ID in the low 12 bits. */
-    d[(uint32_t)slot * 2U] = addr | (uint32_t)rbid;
+     * 4 KiB-aligned DMA address and the virtual buffer ID in the low 12 bits.
+     * Linux numbers buffer IDs from 1 (rxb->vid = i + 1) and treats 0 as
+     * invalid, so buffer n is posted as ID n + 1. */
+    d[(uint32_t)slot * 2U] = addr | ((uint32_t)rbid + 1U);
     d[(uint32_t)slot * 2U + 1U] = 0;
 }
 
@@ -216,13 +222,23 @@ int iwm_rx_program(struct iwm_rx_queue *q)
     prph_write_locked(q, RFH_RXF_RXQ_ACTIVE, RFH_RXQ0_ACTIVE);
     iwm_release_nic_access(q->adapter);
 
-    /* The shadow write-index trigger is in the CSR window, not PRPH. */
+    /* Enable shadow registers, then use the CSR shadow write-index trigger. */
+    wr(q, CSR_MAC_SHADOW_REG_CTRL,
+       q->adapter->ops->mmio_read32(q->adapter->os_context,
+                                    CSR_MAC_SHADOW_REG_CTRL) |
+       CSR_MAC_SHADOW_REG_CTRL_ALL);
     wr(q, RFH_Q0_FRBDCB_WIDX_TRG, q->write_actual);
-    /* Diagnostic: 0 here means the trigger was not accepted, so the RFH has
-     * no free buffer for the ALIVE notification. Expect write_actual. */
+    /* Verify the RFH sees the free buffers; without them firmware has
+     * nowhere to put ALIVE (log: "dbg trg 00000000"). If the trigger was
+     * dropped, write the index directly, as the hw init already does for 0. */
     q->widx_readback = 0xFFFFFFFFUL;
+    q->widx_direct = 0xFFFFFFFFUL;
     if (iwm_grab_nic_access(q->adapter) == IWM_OK) {
         q->widx_readback = prph_read_locked(q, RFH_Q0_FRBDCB_WIDX);
+        if (q->widx_readback != q->write_actual) {
+            prph_write_locked(q, RFH_Q0_FRBDCB_WIDX, q->write_actual);
+            q->widx_direct = prph_read_locked(q, RFH_Q0_FRBDCB_WIDX);
+        }
         iwm_release_nic_access(q->adapter);
     }
     q->programmed = 1;
@@ -282,10 +298,22 @@ int iwm_rx_drain(struct iwm_rx_queue *q)
     q->last_closed = closed;
 
     while (q->read != closed) {
-        uint16_t rbid = (uint16_t)(used[q->read] & IWM_RX_QUEUE_MASK);
-        uint8_t *buf = (uint8_t *)q->buffers.vaddr +
-                       (uint32_t)rbid * IWM_RX_BUFFER_SIZE;
-        int rc = iwm_rx_process_buffer(q, buf, IWM_RX_BUFFER_SIZE);
+        uint32_t vid = used[q->read] & 0x0fffUL;
+        uint16_t rbid;
+        uint8_t *buf;
+        int rc;
+        if (vid == 0 || vid > IWM_RX_QUEUE_SIZE) {
+            /* No buffer to recycle; count it and move on. */
+            ++q->malformed;
+            if (first_error == IWM_OK)
+                first_error = IWM_EFORMAT;
+            q->read = (q->read + 1U) & IWM_RX_QUEUE_MASK;
+            continue;
+        }
+        rbid = (uint16_t)(vid - 1U);
+        buf = (uint8_t *)q->buffers.vaddr +
+              (uint32_t)rbid * IWM_RX_BUFFER_SIZE;
+        rc = iwm_rx_process_buffer(q, buf, IWM_RX_BUFFER_SIZE);
         if (rc != IWM_OK && first_error == IWM_OK)
             first_error = rc;
         desc_set(q, q->posted, rbid);

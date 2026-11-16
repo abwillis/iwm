@@ -238,8 +238,8 @@ static int start_init_firmware(void)
         (ULONG)g_rxq.malformed, (ULONG)g_rxq.last_closed);
     if (rc != IWM_OK)
         dprintf(0,
-            "iwm: dbg trg %08lx gp %08lx rfh cfg %08lx act %08lx widx %08lx ridx %08lx stts %08lx\n",
-            (ULONG)g_rxq.widx_readback,
+            "iwm: dbg trg %08lx direct %08lx gp %08lx rfh cfg %08lx act %08lx widx %08lx ridx %08lx stts %08lx\n",
+            (ULONG)g_rxq.widx_readback, (ULONG)g_rxq.widx_direct,
             (ULONG)g_loader.last_gp_cntrl, (ULONG)g_loader.last_rfh[0],
             (ULONG)g_loader.last_rfh[1], (ULONG)g_loader.last_rfh[2],
             (ULONG)g_loader.last_rfh[3], (ULONG)g_loader.last_rfh[4]);

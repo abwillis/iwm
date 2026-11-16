@@ -105,7 +105,7 @@ static void inject_alive(struct mock_hw *m)
     b[8] = (uint8_t)IWM_RX_ALIVE_STATUS_OK;
     b[9] = (uint8_t)(IWM_RX_ALIVE_STATUS_OK >> 8);
     b[12] = 0x46;              /* deterministic version diagnostics */
-    used[0] = 0;
+    used[0] = 1;               /* buffer IDs start at 1 */
     status->closed_rb_num = 1;
 }
 
