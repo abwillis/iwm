@@ -140,6 +140,39 @@ static void make_alive(uint8_t *p)
     put32(p + 16, 0x55667788U);
 }
 
+/* iwm_rx_drain() called again from inside a notification callback: the
+ * association layer sends firmware commands and waits for their responses
+ * from its RX callback. */
+static struct iwm_rx_queue *g_nq;
+static unsigned g_nseen[16], g_ncalls;
+static int g_nest_at, g_nest_done;
+
+static void nest_cb(void *ctx, uint8_t cmd, uint8_t group, uint16_t seq,
+                    const uint8_t *payload, uint32_t len)
+{
+    unsigned id = payload[0];
+    (void)ctx; (void)cmd; (void)group; (void)seq; (void)len;
+    ++g_ncalls;
+    ++g_nseen[id & 15U];
+    if ((int)id == g_nest_at && !g_nest_done) {
+        g_nest_done = 1;
+        (void)iwm_rx_drain(g_nq);
+    }
+}
+
+/* The device completes buffer slot: one notification whose payload byte 0 is id. */
+static void nest_push(struct iwm_rx_queue *q, unsigned slot, unsigned id)
+{
+    uint8_t *b = (uint8_t *)q->buffers.vaddr + slot * IWM_RX_BUFFER_SIZE;
+    memset(b, 0, 16);
+    put32(b, 6U);
+    b[4] = 0x77;
+    put16(b + 6, 0x8000);
+    b[8] = (uint8_t)id;
+    ((uint32_t *)q->used_desc.vaddr)[slot] = slot + 1U;
+    ((struct iwm_rx_status *)q->status.vaddr)->closed_rb_num = (uint16_t)(slot + 1U);
+}
+
 int main(void)
 {
     struct mock_hw hw;
@@ -148,6 +181,7 @@ int main(void)
     struct iwm_rx_status *status;
     uint32_t *used;
     uint8_t *buf;
+    unsigned i;
 
     memset(&hw, 0, sizeof(hw));
     hw.next_phys = 0x10000000U;
@@ -182,6 +216,25 @@ int main(void)
     assert(q.alive.lmac_minor == 0x55667788U);
     assert(q.read == 1U && q.posted == 0U && hw.widx == 0U);
 
+    /* A response matched by sequence; a notification is counted, not taken. */
+    q.resp_wait = 1;
+    q.resp_seen = 0;
+    q.resp_seq = 0x0000;
+    memset(buf, 0, IWM_RX_BUFFER_SIZE);
+    put32(buf, 4U + 12U);
+    buf[4] = 0x88;
+    put16(buf + 6, 0x8000);        /* SEQ_RX_FRAME: unsolicited */
+    assert(iwm_rx_process_buffer(&q, buf, IWM_RX_BUFFER_SIZE) == IWM_OK);
+    assert(!q.resp_seen && q.notifications == 1U);
+    put16(buf + 6, 0x0000);
+    put16(buf + 8, 0);             /* offset */
+    put16(buf + 10, 0x0800);       /* length */
+    put16(buf + 12, 0);            /* type */
+    put16(buf + 14, 0);            /* status */
+    assert(iwm_rx_process_buffer(&q, buf, IWM_RX_BUFFER_SIZE) == IWM_OK);
+    assert(q.resp_seen && q.resp_cmd == 0x88 && q.resp_len == 12U);
+    assert(q.resp[2] == 0x00 && q.resp[3] == 0x08);
+    q.resp_wait = 0;
     memset(buf, 0, IWM_RX_BUFFER_SIZE);
     put32(buf, IWM_RX_BUFFER_SIZE);
     assert(iwm_rx_process_buffer(&q, buf, IWM_RX_BUFFER_SIZE) == IWM_EFORMAT);
@@ -206,6 +259,27 @@ int main(void)
     assert(iwm_rx_program(&q) == IWM_OK);
     assert(hw.widx == 504U);
     assert(q.widx_readback == 504U);
+    iwm_rx_free(&q);
+    /* Six completed buffers; the callback of the first one drains again.  Each
+     * buffer must be delivered exactly once (the old loop made 13 callbacks
+     * and posted 13 buffers back, d27 log: stale and duplicate frames). */
+    memset(&hw, 0, sizeof(hw));
+    hw.next_phys = 0x10000000U;
+    hw.regs[CSR_HW_REV >> 2] = 0x312U;
+    iwm_adapter_init(&a, &ops, &hw);
+    assert(iwm_adapter_probe(&a, 0x8086, 0xa370, 0, 54) == IWM_OK);
+    iwm_rx_init(&q, &a);
+    assert(iwm_rx_alloc(&q) == IWM_OK && iwm_rx_program(&q) == IWM_OK);
+    q.notif_cb = nest_cb;
+    g_nq = &q;
+    g_nest_at = 1;
+    for (i = 0; i < 6U; ++i)
+        nest_push(&q, i, i + 1U);
+    (void)iwm_rx_drain(&q);
+    for (i = 1; i <= 6U; ++i)
+        assert(g_nseen[i] == 1U);
+    assert(g_ncalls == 6U && q.nested_drains == 1U && q.draining == 0U);
+    assert(q.read == 6U && q.posted == 5U);
     iwm_rx_free(&q);
     puts("rx queue tests passed");
     return 0;

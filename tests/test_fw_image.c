@@ -114,6 +114,39 @@ int main(void)
     memcpy(tmp, img, len);
     assert(parse_bytes(&b, tmp, len + 4, &fw) == IWM_EFORMAT);
 
+    /* Debug-address TLVs 54/55 give the error-table addresses, cache bits
+     * removed. Built as: header, UMAC record (8 bytes), LMAC record. */
+    {
+        uint8_t d[IWM_UCODE_HEADER_SIZE + 3U * 16U];
+        uint32_t p = IWM_UCODE_HEADER_SIZE;
+        memset(d, 0, sizeof(d));
+        put_le32(d + 4, IWM_UCODE_TLV_MAGIC);
+        put_le32(d + p, IWM_UCODE_TLV_UMAC_DEBUG_ADDRS);
+        put_le32(d + p + 4, 8);
+        put_le32(d + p + 8, 0xC0801234UL);
+        p += 16;
+        put_le32(d + p, IWM_UCODE_TLV_LMAC_DEBUG_ADDRS);
+        put_le32(d + p + 4, 8);
+        put_le32(d + p + 8, 0x40805678UL);
+        p += 16;
+        assert(parse_bytes(&b, d, p, &fw) == IWM_OK);
+        assert(fw.umac_err_addr == 0x00801234UL);
+        assert(fw.lmac_err_addr == 0x00805678UL);
+    }
+    /* PAGING TLV 32: 4 KiB multiple accepted, anything else refused. */
+    {
+        uint8_t d[IWM_UCODE_HEADER_SIZE + 12U];
+        uint32_t p = IWM_UCODE_HEADER_SIZE;
+        memset(d, 0, sizeof(d));
+        put_le32(d + 4, IWM_UCODE_TLV_MAGIC);
+        put_le32(d + p, IWM_UCODE_TLV_PAGING);
+        put_le32(d + p + 4, 4);
+        put_le32(d + p + 8, 241664UL);
+        assert(parse_bytes(&b, d, sizeof(d), &fw) == IWM_OK);
+        assert(fw.paging_mem_size == 241664UL);
+        put_le32(d + p + 8, 241665UL);
+        assert(parse_bytes(&b, d, sizeof(d), &fw) == IWM_EFORMAT);
+    }
     /* Store bounds: writes and reads beyond the sized image fail. */
     assert(iwm_blob_resize(&b, 16) == IWM_OK);
     assert(iwm_blob_write(&b, 12, img, 8) == IWM_EINVAL);

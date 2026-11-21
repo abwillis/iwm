@@ -33,6 +33,11 @@
 #define RFH_GEN_SERVICE_DMA_SNOOP     0x00000001UL
 #define RFH_GEN_RFH_DMA_SNOOP         0x00000002UL
 #define RFH_RXQ0_ACTIVE               0x00010001UL
+/* FreeBSD iwm_nic_rx_mq_init(): IWM_CSR_INT_COALESCING (byte at 0x004) =
+ * IWM_HOST_INT_TIMEOUT_DEF. Byte 0x005 is the periodic-interrupt register,
+ * so only the low byte is changed. */
+#define CSR_INT_COALESCING            0x004UL
+#define HOST_INT_TIMEOUT_DEF          0x40UL
 
 static void wr(struct iwm_rx_queue *q, uint32_t reg, uint32_t value)
 {
@@ -220,6 +225,10 @@ int iwm_rx_program(struct iwm_rx_queue *q)
     prph_write_locked(q, RFH_GEN_CFG,
                       RFH_GEN_RFH_DMA_SNOOP | RFH_GEN_SERVICE_DMA_SNOOP);
     prph_write_locked(q, RFH_RXF_RXQ_ACTIVE, RFH_RXQ0_ACTIVE);
+    wr(q, CSR_INT_COALESCING,
+       (q->adapter->ops->mmio_read32(q->adapter->os_context,
+                                     CSR_INT_COALESCING) & ~0xffUL) |
+       HOST_INT_TIMEOUT_DEF);
     iwm_release_nic_access(q->adapter);
 
     /* Enable shadow registers, then use the CSR shadow write-index trigger. */
@@ -260,9 +269,27 @@ int iwm_rx_process_buffer(struct iwm_rx_queue *q,
     }
     q->last_cmd = buf[4];
     q->last_group = buf[5];
+    q->last_seq = iwm_get_le16(buf + 6U);
     payload = buf + 8U;
     payload_len = frame_len - 4U;
     ++q->packets;
+    if (q->last_seq & IWM_RX_SEQ_RX_FRAME)
+        ++q->notifications;
+    else if (q->resp_wait && !q->resp_seen && q->last_seq == q->resp_seq) {
+        q->resp_cmd = q->last_cmd;
+        q->resp_group = q->last_group;
+        q->resp_len = (uint16_t)payload_len;
+        memset(q->resp, 0, sizeof(q->resp));
+        memcpy(q->resp, payload, IWM_MIN(payload_len, IWM_RX_RESP_COPY));
+        if (q->resp_buf && q->resp_cap)
+            memcpy(q->resp_buf, payload,
+                   IWM_MIN(payload_len, (uint32_t)q->resp_cap));
+        q->resp_seen = 1;
+        return IWM_OK;
+    }
+    if (q->notif_cb)
+        q->notif_cb(q->notif_ctx, q->last_cmd, q->last_group, q->last_seq,
+                    payload, payload_len);
 
     if (q->last_cmd != IWM_RX_CMD_ALIVE || q->last_group != 0)
         return IWM_OK;
@@ -294,20 +321,39 @@ int iwm_rx_drain(struct iwm_rx_queue *q)
         return IWM_ESTATE;
     s = (volatile struct iwm_rx_status *)q->status.vaddr;
     used = (volatile uint32_t *)q->used_desc.vaddr;
-    closed = s->closed_rb_num & IWM_RX_QUEUE_MASK;
-    q->last_closed = closed;
 
-    while (q->read != closed) {
-        uint32_t vid = used[q->read] & 0x0fffUL;
+    /* A notification callback may send a firmware command and wait for its
+     * response, which drains this queue again from inside the callback (the
+     * association layer does: iwm_assoc_rx -> as_up -> iwm_sta_up -> ~20
+     * commands).  Two rules make that safe.  A slot is consumed (q->read
+     * advanced) BEFORE its callback runs, so the inner drain carries on with
+     * the next buffer instead of delivering the same one again.  The
+     * producer index is re-read on every pass, so this loop never works from
+     * a stale value after an inner drain consumed more.
+     * The old loop did neither: after one inner drain it ran on through the
+     * whole 512-slot ring.  d27 log: every association "ignored" 19-38
+     * frames, one TX response (seq 0500) was logged three times, "dataq resp"
+     * reached 26 after 6 transmissions, and the stale TX responses moved the
+     * queue-4 read index so that the next frame failed with rc -4. */
+    if (q->draining)
+        ++q->nested_drains;
+    ++q->draining;
+    for (;;) {
+        uint32_t vid;
         uint16_t rbid;
         uint8_t *buf;
         int rc;
+        closed = s->closed_rb_num & IWM_RX_QUEUE_MASK;
+        q->last_closed = closed;
+        if (q->read == closed)
+            break;
+        vid = used[q->read] & 0x0fffUL;
+        q->read = (q->read + 1U) & IWM_RX_QUEUE_MASK;
         if (vid == 0 || vid > IWM_RX_QUEUE_SIZE) {
             /* No buffer to recycle; count it and move on. */
             ++q->malformed;
             if (first_error == IWM_OK)
                 first_error = IWM_EFORMAT;
-            q->read = (q->read + 1U) & IWM_RX_QUEUE_MASK;
             continue;
         }
         rbid = (uint16_t)(vid - 1U);
@@ -318,13 +364,39 @@ int iwm_rx_drain(struct iwm_rx_queue *q)
             first_error = rc;
         desc_set(q, q->posted, rbid);
         q->posted = (q->posted + 1U) & IWM_RX_QUEUE_MASK;
-        q->read = (q->read + 1U) & IWM_RX_QUEUE_MASK;
     }
+    --q->draining;
     if (q->write_actual != (q->posted & ~7U)) {
         q->write_actual = q->posted & ~7U;
         wr(q, RFH_Q0_FRBDCB_WIDX_TRG, q->write_actual);
     }
     return first_error;
+}
+
+int iwm_rx_wait_resp(struct iwm_rx_queue *q, uint16_t seq,
+                     uint32_t timeout_us)
+{
+    uint32_t elapsed;
+    if (!q || !q->adapter || !q->adapter->ops ||
+        !q->adapter->ops->delay_us || !q->programmed)
+        return IWM_ESTATE;
+    q->resp_seq = seq;
+    q->resp_seen = 0;
+    q->resp_wait = 1;
+    for (elapsed = 0; elapsed < timeout_us; elapsed += 100U) {
+        int rc = iwm_rx_drain(q);
+        if (q->resp_seen) {
+            q->resp_wait = 0;
+            return IWM_OK;
+        }
+        if (rc != IWM_OK && rc != IWM_EFORMAT && rc != IWM_EIO) {
+            q->resp_wait = 0;
+            return rc;
+        }
+        q->adapter->ops->delay_us(q->adapter->os_context, 100U);
+    }
+    q->resp_wait = 0;
+    return IWM_ETIMEDOUT;
 }
 
 int iwm_rx_wait_alive(struct iwm_rx_queue *q, uint32_t timeout_us)

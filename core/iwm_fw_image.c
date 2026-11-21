@@ -151,6 +151,56 @@ int iwm_fw_image_parse(const struct iwm_blob *blob,
             if (image->num_cpus == 0U || image->num_cpus > 2U)
                 return parse_fail(image, IWM_EFORMAT, IWM_FWP_CPU_COUNT,
                                   rec, type, image->num_cpus);
+        } else if (type == IWM_UCODE_TLV_PHY_SKU) {
+            if (length != 4U)
+                return parse_fail(image, IWM_EFORMAT, IWM_FWP_TLV_LENGTH,
+                                  rec, type, length);
+            if (iwm_blob_read(blob, pos, word, 4) != IWM_OK)
+                return parse_fail(image, IWM_EIO, IWM_FWP_READ,
+                                  rec, type, length);
+            image->phy_config = iwm_get_le32(word);
+        } else if (type == IWM_UCODE_TLV_PAGING) {
+            uint32_t pm;
+            if (length != 4U)
+                return parse_fail(image, IWM_EFORMAT, IWM_FWP_TLV_LENGTH,
+                                  rec, type, length);
+            if (iwm_blob_read(blob, pos, word, 4) != IWM_OK)
+                return parse_fail(image, IWM_EIO, IWM_FWP_READ,
+                                  rec, type, length);
+            pm = iwm_get_le32(word);
+            /* Linux iwl_parse_tlv_firmware(): bounded, 4 KiB multiple. */
+            if (pm > IWM_FW_PAGING_MAX || (pm & (IWM_FW_PAGING_SIZE - 1UL)))
+                return parse_fail(image, IWM_EFORMAT, IWM_FWP_TLV_LENGTH,
+                                  rec, type, pm);
+            image->paging_mem_size = pm;
+        } else if (type == IWM_UCODE_TLV_DEF_CALIB) {
+            uint8_t cal[12];
+            uint32_t ut;
+            if (length != 12U)
+                return parse_fail(image, IWM_EFORMAT, IWM_FWP_TLV_LENGTH,
+                                  rec, type, length);
+            if (iwm_blob_read(blob, pos, cal, 12) != IWM_OK)
+                return parse_fail(image, IWM_EIO, IWM_FWP_READ,
+                                  rec, type, length);
+            ut = iwm_get_le32(cal);
+            if (ut < IWM_UCODE_TYPE_MAX) {
+                image->calib_flow[ut] = iwm_get_le32(cal + 4);
+                image->calib_event[ut] = iwm_get_le32(cal + 8);
+            }
+        } else if (type == IWM_UCODE_TLV_UMAC_DEBUG_ADDRS ||
+                   type == IWM_UCODE_TLV_LMAC_DEBUG_ADDRS) {
+            /* First dword of both records is the error-table address. */
+            if (length >= 4U) {
+                if (iwm_blob_read(blob, pos, word, 4) != IWM_OK)
+                    return parse_fail(image, IWM_EIO, IWM_FWP_READ,
+                                      rec, type, length);
+                if (type == IWM_UCODE_TLV_UMAC_DEBUG_ADDRS)
+                    image->umac_err_addr = iwm_get_le32(word) &
+                                           ~IWM_FW_ADDR_CACHE_CONTROL;
+                else
+                    image->lmac_err_addr = iwm_get_le32(word) &
+                                           ~IWM_FW_ADDR_CACHE_CONTROL;
+            }
         } else if (classify(type, &flags)) {
             if (length < 4U)
                 return parse_fail(image, IWM_EFORMAT, IWM_FWP_SEC_SHORT,

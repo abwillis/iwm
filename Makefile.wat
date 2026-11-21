@@ -34,6 +34,10 @@ WATCOM_H  = $(WATCOM)\h;$(WATCOM)\h\os2
 DRV32LIB  = $(DRV32)\Drv32.lib
 KEELIB    = $(MINIDDK)\base32\lib\kee.lib
 
+# Extra compiler defines, e.g. wmake -f makefile.wat driver IWM_DEFS=-dIWM_INIT_SPLIT_GLOBAL=1
+!ifndef IWM_DEFS
+IWM_DEFS =
+!endif
 CC = wcc386
 LINK = wlink
 DRIVER = IWM32.OS2
@@ -46,14 +50,14 @@ INC_R3 = -i=include -i=$(OS2TK_H) -i=$(WATCOM_H)
 # Do not add -zu: Drv32 interfaces intentionally accept addresses of locals
 # through near pointers on the 32-bit stack.
 CF_R0 = -q -bt=os2 -zq -wx -6s -zp4 -d__OS2__ -d1 -6 -obilmr -s &
-        -zp=1 -zl -ei -zff -zgf -dIWM_RING0 -fi=Dev32lib.h $(INC_R0)
+        -zp=1 -zl -ei -zff -zgf -dIWM_RING0 -fi=Dev32lib.h $(INC_R0) $(IWM_DEFS)
 CF_R3 = -q -bt=os2 -zq -wx -6s -zp4 -d__OS2__ -bm -obilmr -we -ei &
         -zm -ox $(INC_R3)
 
 R0_OBJS = r0_strat.obj r0_m1.obj r0_rm.obj r0_bar.obj r0_fw.obj r0_ioctl.obj &
-          r0_devices.obj r0_crc32.obj r0_fw_stream.obj r0_fw_image.obj &
+          r0_d32_ndis.obj r0_ndis.obj r0_devices.obj r0_crc32.obj r0_fw_stream.obj r0_fw_image.obj &
            r0_fw_loader.obj r0_transport.obj r0_hw.obj r0_rings.obj &
-           r0_rx.obj r0_tx.obj r0_genmac.obj
+           r0_rx.obj r0_tx.obj r0_genmac.obj r0_init_fw.obj r0_rt_fw.obj r0_rt_seq.obj r0_scan.obj r0_assoc.obj r0_sta.obj r0_sta_seq.obj r0_data.obj
 R3_OBJS = r3_iwmfwld.obj r3_crc32.obj
 
 all: .SYMBOLIC check ring3 driver
@@ -66,6 +70,7 @@ check: .SYMBOLIC
     @%abort
 !endif
     @if not exist $(DRV32_H)\Dev32lib.h echo Missing $(DRV32_H)\Dev32lib.h
+    @if not exist $(DRV32_H)\Dev32ndis.h echo Missing $(DRV32_H)\Dev32ndis.h
     @if not exist $(DRV32LIB) echo Missing $(DRV32LIB)
     @if not exist $(MINIDDK_H)\strategy.h echo Missing $(MINIDDK_H)\strategy.h
     @if not exist $(KEELIB) echo Missing $(KEELIB)
@@ -82,6 +87,10 @@ r0_fw.obj: os2\iwm_d32_fw.c os2\iwm_d32.h include\iwm_fw_loader.h .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ os2\iwm_d32_fw.c
 r0_ioctl.obj: os2\iwm_os2_ioctl.c .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ os2\iwm_os2_ioctl.c
+r0_d32_ndis.obj: os2\iwm_d32_ndis.c os2\iwm_d32.h include\iwm_ndis.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ os2\iwm_d32_ndis.c
+r0_ndis.obj: core\iwm_ndis.c include\iwm_ndis.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_ndis.c
 r0_devices.obj: core\iwm_devices.c .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ core\iwm_devices.c
 r0_crc32.obj: core\iwm_crc32.c .AUTODEPEND
@@ -104,6 +113,30 @@ r0_tx.obj: core\iwm_tx.c include\iwm_tx.h .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ core\iwm_tx.c
 r0_genmac.obj: core\iwm_genmac.c .AUTODEPEND
     $(CC) $(CF_R0) -fo=$@ core\iwm_genmac.c
+
+r0_init_fw.obj: core\iwm_init_fw.c include\iwm_init_fw.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_init_fw.c
+
+r0_rt_fw.obj: core\iwm_rt_fw.c include\iwm_rt_fw.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_rt_fw.c
+
+r0_rt_seq.obj: core\iwm_rt_seq.c include\iwm_rt_fw.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_rt_seq.c
+
+r0_scan.obj: core\iwm_scan.c include\iwm_scan.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_scan.c
+
+r0_assoc.obj: core\iwm_assoc.c include\iwm_assoc.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_assoc.c
+
+r0_sta.obj: core\iwm_sta.c include\iwm_sta.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_sta.c
+
+r0_sta_seq.obj: core\iwm_sta_seq.c include\iwm_sta.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_sta_seq.c
+
+r0_data.obj: core\iwm_data.c include\iwm_data.h .AUTODEPEND
+    $(CC) $(CF_R0) -fo=$@ core\iwm_data.c
 
 r3_iwmfwld.obj: tools\iwmfwld.c .AUTODEPEND
     $(CC) $(CF_R3) -fo=$@ tools\iwmfwld.c

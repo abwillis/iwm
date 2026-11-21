@@ -4,7 +4,9 @@ if "%WATCOM%" == "" goto nowatcom
 if not exist build mkdir build
 wcl386 -q -bt=os2 -i=include -fe=build\iwmfwld.exe tools\iwmfwld.c core\iwm_crc32.c
 if errorlevel 1 goto failed
-echo Built build\iwmfwld.exe
+wcl386 -q -bt=os2 -l=os2v2 -fe=build\ssidconnect.exe tools\ssidconnect.c
+if errorlevel 1 goto failed
+echo Built build\iwmfwld.exe and build\ssidconnect.exe
 goto end
 :nowatcom
 echo WATCOM is not set.

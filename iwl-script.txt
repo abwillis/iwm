@@ -1,0 +1,19 @@
+sudo systemctl stop NetworkManager
+sudo ./iwl-capture.sh ~/iwlcap 8
+sudo systemctl start NetworkManager
+
+sudo systemctl stop NetworkManager
+sudo CMD_OFFSETS="40 36 44" ./iwl-capture.sh capture ~/iwlcap
+sudo systemctl start NetworkManager
+./iwl-capture.sh compare 'wrnd32$.log' ~/iwlcap
+
+sudo systemctl stop NetworkManager
+sudo ASSOC_SSID="fradypondfarms Guest" ASSOC_FREQ=2437 CMD_OFFSETS="40 36 44" ./iwl-capture.sh capture ~/iwlcap-data
+sudo systemctl start NetworkManager
+
+sudo systemctl stop NetworkManager
+sudo ASSOC_SSID="LWGuest" ASSOC_FREQ=2437 CMD_OFFSETS="40 36 44" ./iwl-capture.sh capture ~/iwlcap-data
+sudo systemctl start NetworkManager
+
+sudo chown abwillis:abwillis ~/iwlcap-data
+sudo chown abwillis:abwillis ~/iwlcap-data/*

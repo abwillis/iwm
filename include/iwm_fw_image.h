@@ -91,6 +91,31 @@ struct iwm_fw_image {
     uint32_t version;
     uint32_t build;
     uint32_t num_cpus;
+    /* Linux fw.phy_config from IWL_UCODE_TLV_PHY_SKU; 0 when absent. */
+#define IWM_UCODE_TLV_PHY_SKU 23UL
+    uint32_t phy_config;
+    /* Linux IWL_UCODE_TLV_UMAC_DEBUG_ADDRS (54) / LMAC_DEBUG_ADDRS (55):
+     * SRAM addresses of the firmware error tables, cache bits removed.
+     * 0 when the image does not carry the TLV. */
+#define IWM_UCODE_TLV_UMAC_DEBUG_ADDRS 54UL
+#define IWM_UCODE_TLV_LMAC_DEBUG_ADDRS 55UL
+#define IWM_FW_ADDR_CACHE_CONTROL      0xC0000000UL
+    uint32_t umac_err_addr;
+    uint32_t lmac_err_addr;
+    /* Linux IWL_UCODE_TLV_DEF_CALIB (22): iwl_tlv_calib_data { ucode_type,
+     * flow_trigger, event_trigger }, indexed by IWL_UCODE_REGULAR/INIT/... */
+#define IWM_UCODE_TLV_DEF_CALIB        22UL
+#define IWM_UCODE_TYPE_REGULAR         0U
+#define IWM_UCODE_TYPE_INIT            1U
+#define IWM_UCODE_TYPE_MAX             4U
+    /* Linux IWL_UCODE_TLV_PAGING (32): le32 paging_mem_size of the REGULAR
+     * image, a multiple of 4 KiB; 0 when absent. */
+#define IWM_UCODE_TLV_PAGING           32UL
+#define IWM_FW_PAGING_SIZE             4096UL
+#define IWM_FW_PAGING_MAX              (33UL * 32768UL)
+    uint32_t paging_mem_size;
+    uint32_t calib_flow[IWM_UCODE_TYPE_MAX];
+    uint32_t calib_event[IWM_UCODE_TYPE_MAX];
     uint16_t section_count;
     uint16_t runtime_count;
     uint16_t init_count;

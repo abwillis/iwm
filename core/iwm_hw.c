@@ -18,6 +18,28 @@
 #define CSR_GIO_CHICKEN_BITS 0x100UL
 #define CSR_DBG_HPET_MEM_REG 0x240UL
 #define CSR_DBG_LINK_PWR_MGMT_REG 0x250UL
+#define CSR_GIO_REG          0x03cUL
+#define CSR_GIO_REG_VAL_L0S_DISABLED 0x00000002UL
+#define HBUS_TARG_PRPH_WADDR 0x444UL
+#define HBUS_TARG_PRPH_RADDR 0x448UL
+#define HBUS_TARG_PRPH_WDAT  0x44cUL
+#define HBUS_TARG_PRPH_RDAT  0x450UL
+#define HBUS_PRPH_DWORD      (3UL << 24)
+/* Linux iwl_trans_pcie_clear_persistence_bit() (iwl-prph.h). */
+#define HPM_DEBUG            0x00a03440UL
+#define HPM_PERSISTENCE_BIT  0x00001000UL
+#define PREG_PRPH_WPROT_9000 0x00a04ce0UL
+#define PREG_WFPM_ACCESS     0x00001000UL
+/* FreeBSD iwm_attach() (family >= 8000) sets ENABLE_WFPM in WFPM_CTRL_REG;
+ * Linux _iwl_pci_probe() calls get_crf_id() under NIC access at the same
+ * point. */
+#define WFPM_CTRL_REG        0x00a03030UL
+#define ENABLE_WFPM          0x80000000UL
+/* Linux iwl_pcie_conf_msix_hw() / OpenBSD iwm_conf_msix_hw(): MQ-RX parts
+ * default to MSI-X; a driver using plain MSI must select it in UREG_CHICK
+ * once the device is enabled (after APM init). */
+#define UREG_CHICK           0x00a05c00UL
+#define UREG_CHICK_MSI_ENABLE 0x01000000UL
 
 /* PREPARE (Linux CSR_HW_IF_CONFIG_REG_WAKE_ME, 0x08000000) is host-owned;
  * NIC_READY (Linux CSR_HW_IF_CONFIG_REG_PCI_OWN_SET, 0x00400000) is set by
@@ -161,6 +183,74 @@ int iwm_adapter_probe(struct iwm_adapter *a, uint16_t vendor,
     return IWM_OK;
 }
 
+/* PRPH access without NIC-access arbitration (Linux *_no_grab), used before
+ * APM init when MAC_ACCESS_REQ cannot be honoured yet. */
+static uint32_t prph_rd_nograb(struct iwm_adapter *a, uint32_t reg)
+{
+    wr(a, HBUS_TARG_PRPH_RADDR, reg | HBUS_PRPH_DWORD);
+    return rd(a, HBUS_TARG_PRPH_RDAT);
+}
+static void prph_wr_nograb(struct iwm_adapter *a, uint32_t reg, uint32_t v)
+{
+    wr(a, HBUS_TARG_PRPH_WADDR, reg | HBUS_PRPH_DWORD);
+    wr(a, HBUS_TARG_PRPH_WDAT, v);
+}
+static int hw_error_value(uint32_t v)
+{
+    return v == 0xFFFFFFFFUL || (v & ~0xFUL) == 0xA5A5A5A0UL ||
+           (v & ~0xFUL) == 0x5A5A5A50UL;
+}
+/* Linux iwl_trans_pcie_clear_persistence_bit(): while PERSISTENCE is set the
+ * device keeps its state across a software reset (state left by another OS
+ * or by firmware), so the secure-boot ROM does not start from reset. */
+static int clear_persistence(struct iwm_adapter *a)
+{
+    uint32_t hpm;
+    if (!a->cfg || a->cfg->family != IWM_FAMILY_9000)
+        return IWM_OK;
+    hpm = prph_rd_nograb(a, HPM_DEBUG);
+    a->hpm_debug = hpm;
+    if (hw_error_value(hpm) || !(hpm & HPM_PERSISTENCE_BIT))
+        return IWM_OK;
+    if (prph_rd_nograb(a, PREG_PRPH_WPROT_9000) & PREG_WFPM_ACCESS)
+        return IWM_EIO; /* Linux: "can not clear persistence bit" */
+    prph_wr_nograb(a, HPM_DEBUG, hpm & ~HPM_PERSISTENCE_BIT);
+    a->hpm_after = prph_rd_nograb(a, HPM_DEBUG);
+    return IWM_OK;
+}
+/* FreeBSD iwm_attach() runs this once before any start_hw: ownership,
+ * INIT_DONE, wait for the MAC clock, then under NIC access set ENABLE_WFPM.
+ * The device stays in D0A, so the HPM_DEBUG read of the persistence check
+ * that follows is meaningful. Without it the boot log read 0xa5a5a5a0 there,
+ * which the check treats as "nothing to clear". Define IWM_NO_WFPM to compile
+ * it out. */
+static int wake_and_enable_wfpm(struct iwm_adapter *a)
+{
+#ifdef IWM_NO_WFPM
+    (void)a;
+    return IWM_OK;
+#else
+    uint32_t v;
+    int rc;
+
+    wr(a, CSR_GP_CNTRL, rd(a, CSR_GP_CNTRL) | CSR_GP_INIT_DONE);
+    a->ops->delay_us(a->os_context, 2);
+    rc = poll(a, CSR_GP_CNTRL, CSR_GP_CLOCK_READY, CSR_GP_CLOCK_READY,
+              250, 100);
+    if (rc == IWM_OK)
+        rc = iwm_grab_nic_access(a);
+    if (rc == IWM_OK) {
+        v = prph_rd_nograb(a, WFPM_CTRL_REG);
+        a->wfpm_ctrl[0] = v;
+        prph_wr_nograb(a, WFPM_CTRL_REG, v | ENABLE_WFPM);
+        a->wfpm_ctrl[1] = prph_rd_nograb(a, WFPM_CTRL_REG);
+        iwm_release_nic_access(a);
+    }
+    a->wfpm_rc = rc;
+    return rc;
+#endif
+}
+static int g_in_sw_reset;
 int iwm_prepare_card_hw(struct iwm_adapter *a)
 {
     uint32_t v;
@@ -195,6 +285,22 @@ int iwm_prepare_card_hw(struct iwm_adapter *a)
             return rc;
     }
     wr(a, CSR_MBOX_SET_REG, CSR_MBOX_OS_ALIVE);
+    /* Linux _iwl_trans_pcie_start_hw(): ownership, persistence clear, software
+     * reset (CPUs stay in reset until RELEASE_CPU_RESET), then ownership again
+     * before APM init. */
+    if (!g_in_sw_reset) {
+        /* Failure is logged through wfpm_rc; the reset path continues. */
+        (void)wake_and_enable_wfpm(a);
+        rc = clear_persistence(a);
+        if (rc != IWM_OK)
+            return rc;
+        wr(a, CSR_RESET, rd(a, CSR_RESET) | CSR_RESET_SW);
+        a->ops->delay_us(a->os_context, 6000);
+        g_in_sw_reset = 1;
+        rc = iwm_prepare_card_hw(a);
+        g_in_sw_reset = 0;
+        return rc;
+    }
 
     /* APM bring-up needed before FH/PRPH access. */
     v = rd(a, CSR_GIO_CHICKEN_BITS) | CSR_GIO_L1A_NO_L0S_RX;
@@ -205,10 +311,23 @@ int iwm_prepare_card_hw(struct iwm_adapter *a)
        rd(a, CSR_DBG_HPET_MEM_REG) | CSR_DBG_HPET_MAX_WAIT);
     wr(a, CSR_HW_IF_CONFIG_REG,
        rd(a, CSR_HW_IF_CONFIG_REG) | CSR_HW_IF_HAP_WAKE_L1A);
+    /* Linux iwl_pcie_apm_config(): L0s is always disabled. */
+    wr(a, CSR_GIO_REG, rd(a, CSR_GIO_REG) | CSR_GIO_REG_VAL_L0S_DISABLED);
     v = rd(a, CSR_GP_CNTRL) | CSR_GP_INIT_DONE;
     wr(a, CSR_GP_CNTRL, v);
     rc = poll(a, CSR_GP_CNTRL, CSR_GP_CLOCK_READY,
               CSR_GP_CLOCK_READY, 250, 100);
+    if (rc == IWM_OK && a->cfg && a->cfg->mq_rx) {
+        a->ureg_chick[0] = 0xFFFFFFFFUL;
+        a->ureg_chick[1] = 0xFFFFFFFFUL;
+        rc = iwm_grab_nic_access(a);
+        if (rc == IWM_OK) {
+            a->ureg_chick[0] = prph_rd_nograb(a, UREG_CHICK);
+            prph_wr_nograb(a, UREG_CHICK, UREG_CHICK_MSI_ENABLE);
+            a->ureg_chick[1] = prph_rd_nograb(a, UREG_CHICK);
+            iwm_release_nic_access(a);
+        }
+    }
     if (rc == IWM_OK)
         a->state = IWM_ADAPTER_FW_WAIT;
     return rc;
@@ -221,6 +340,10 @@ int iwm_grab_nic_access(struct iwm_adapter *a)
         return IWM_ESTATE;
     v = rd(a, CSR_GP_CNTRL) | CSR_GP_ACCESS_REQ;
     wr(a, CSR_GP_CNTRL, v);
+    /* FreeBSD iwm_nic_lock(): on 8000 and later, 2 us for the MAC to drop a
+     * stale CLOCK_READY before it is polled. */
+    if (a->cfg && a->cfg->family >= IWM_FAMILY_8000)
+        a->ops->delay_us(a->os_context, 2);
     return poll(a, CSR_GP_CNTRL, CSR_GP_CLOCK_READY | CSR_GP_GOING_SLEEP,
                 CSR_GP_CLOCK_READY, 150, 100);
 }

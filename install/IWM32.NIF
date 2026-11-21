@@ -1,0 +1,10 @@
+[IWM32]
+Type = NDIS
+Title = "Intel Wireless-AC 9560 WLAN (OS/2 native)"
+Version = 0.1
+DriverName = WRND32$
+Xports = NETBEUI, LANDD
+
+[File]
+Name = IWM32.OS2
+Path = IBMCOM\MACS

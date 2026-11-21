@@ -13,6 +13,10 @@
 #define CSR_INT_MASK                    0x00cUL
 #define CSR_FH_INT_STATUS               0x010UL
 #define CSR_GP_CNTRL                    0x024UL
+#define CSR_HW_IF_CONFIG_REG            0x000UL
+/* Bits iwl_mvm_nic_config() owns: MAC dash/step, MAC_SI, RADIO_SI, PHY
+ * type/dash/step. */
+#define CSR_HW_IF_NIC_CONFIG_MASK       0x0000ff0fUL
 #define FH_INT_TX_MASK                  0x00000003UL /* TX chnl 0/1 */
 #define CSR_UCODE_DRV_GP1_CLR           0x05cUL
 #define CSR_UCODE_SW_BIT_RFKILL         0x00000002UL
@@ -21,6 +25,8 @@
 #define HBUS_TARG_PRPH_RADDR            0x448UL
 #define HBUS_TARG_PRPH_WDAT             0x44cUL
 #define HBUS_TARG_PRPH_RDAT             0x450UL
+#define HBUS_TARG_MEM_RADDR             0x40cUL
+#define HBUS_TARG_MEM_RDAT              0x41cUL
 #define HBUS_PRPH_DWORD                 (3UL << 24)
 #define FH_UCODE_LOAD_STATUS            0x1af0UL
 #define FH_TFDIB_CTRL0(ch)              (0x1900UL + 8UL * (ch))
@@ -39,12 +45,28 @@
 #define FH_TCSR_TB_IDX_POS               12U
 #define RELEASE_CPU_RESET                0x300cUL
 #define RELEASE_CPU_RESET_BIT            0x01000000UL
+/* Linux trace of this card writes PRPH 0xa030b4 = 0x01010101 just before
+ * RELEASE_CPU_RESET on every load (INIT and runtime).  Believed to be
+ * WFPM_GP2 in iwl-prph.h; name not verified against the indexed source. */
+#define WFPM_GP2                         0x00a030b4UL
+#define WFPM_GP2_VALUE                   0x01010101UL
 #define LMPM_SECURE_CPU2_HDR_ADDR         0x001e7cUL
 #define LMPM_SECURE_CPU2_HDR_MEM_SPACE    0x00420400UL
 #define LMPM_CHICK                       0x00a01ff8UL
+/* Linux iwl_mvm_load_ucode_wait_alive() failure diagnostics (iwl-prph.h). */
+#define SB_CPU_1_STATUS                  0x00a01e30UL
+#define SB_CPU_2_STATUS                  0x00a01e34UL
+#define UREG_UMAC_CURRENT_PC             0x00a05c18UL
+#define UREG_LMAC1_CURRENT_PC            0x00a05c1cUL
 #define LMPM_CHICK_EXTENDED_ADDR_SPACE   0x00000001UL
 #define FW_MEM_EXTENDED_START            0x00040000UL
 #define FW_MEM_EXTENDED_END              0x00057fffUL
+/* 0: per-image separators (Linux iwl_store_ucode_sec / FreeBSD
+ *    iwm_firmware_store_section behaviour, the default).
+ * 1: experiment - first CPU1/CPU2 separator of any image splits INIT too. */
+#ifndef IWM_INIT_SPLIT_GLOBAL
+#define IWM_INIT_SPLIT_GLOBAL 0
+#endif
 
 static uint32_t rd(struct iwm_fw_loader *l, uint32_t reg)
 {
@@ -96,6 +118,21 @@ static int prph_read(struct iwm_fw_loader *l, uint32_t reg, uint32_t *value)
     return IWM_OK;
 }
 
+/* Read n dwords of device SRAM (Linux iwl_trans_read_mem: the read address
+ * auto-increments). Leaves out[] zero when NIC access is refused. */
+static void mem_read(struct iwm_fw_loader *l, uint32_t addr, uint32_t *out,
+                     unsigned n)
+{
+    unsigned i;
+    for (i = 0; i < n; ++i)
+        out[i] = 0;
+    if (!addr || iwm_grab_nic_access(l->adapter) != IWM_OK)
+        return;
+    wr(l, HBUS_TARG_MEM_RADDR, addr);
+    for (i = 0; i < n; ++i)
+        out[i] = rd(l, HBUS_TARG_MEM_RDAT);
+    iwm_release_nic_access(l->adapter);
+}
 static int prph_update(struct iwm_fw_loader *l, uint32_t reg,
                        uint32_t set, uint32_t clear)
 {
@@ -173,6 +210,12 @@ void iwm_fw_loader_note_irq(struct iwm_fw_loader *l, uint32_t cause)
         return;
     lock_loader(l);
     l->irq_cause |= cause;
+    l->irq_seen |= cause;
+    ++l->irq_calls;
+    if ((cause & (IWM_CSR_INT_SW_ERR | IWM_CSR_INT_HW_ERR)) && !l->err_at)
+        l->err_at = l->irq_calls;
+    if ((cause & IWM_CSR_INT_ALIVE) && !l->alive_at)
+        l->alive_at = l->irq_calls;
     if (cause & IWM_CSR_INT_ALIVE) {
         l->alive_interrupt = 1;
         l->stage = IWM_FWLS_ALIVE_IRQ;
@@ -230,7 +273,14 @@ int iwm_fw_section_cpu(const struct iwm_fw_image *image, uint16_t index,
     cpu_sep = image->section_count;
     paging_sep = image->section_count;
     for (i = 0; i < image->section_count; ++i) {
-        if (!(image->section[i].flags & IWM_FW_SEC_SEPARATOR))
+        /* Linux iwl_store_ucode_sec() and FreeBSD keep one section list per
+         * image type, separators included, so a separator only splits the
+         * image whose TLV type it carries.  In the API-46 9560 file every
+         * separator is a SEC_RT record: the INIT image has none and Linux
+         * loads all nine INIT sections as CPU1. */
+        if (!(image->section[i].flags & IWM_FW_SEC_SEPARATOR) ||
+            (!IWM_INIT_SPLIT_GLOBAL &&
+             !(image->section[i].flags & image_flag)))
             continue;
         if (image->section[i].dst_addr == IWM_UCODE_SECTION_CPU1_CPU2 &&
             cpu_sep == image->section_count)
@@ -324,15 +374,41 @@ static int load_section(struct iwm_fw_loader *l,
     return IWM_OK;
 }
 
+/* FreeBSD iwm_pcie_load_cpu_sections_8000() holds MAC access (iwm_nic_lock)
+ * around every FH_UCODE_LOAD_STATUS read and write; Linux uses its
+ * *_direct32 accessors at the same points. The register sits in the FH
+ * block, which is only reliably accessible while the MAC is awake. */
+static int load_status_or(struct iwm_fw_loader *l, uint32_t bits)
+{
+    int rc = iwm_grab_nic_access(l->adapter);
+
+    if (rc != IWM_OK)
+        return rc;
+    wr(l, FH_UCODE_LOAD_STATUS, rd(l, FH_UCODE_LOAD_STATUS) | bits);
+    iwm_release_nic_access(l->adapter);
+    return IWM_OK;
+}
+
+static int load_status_write(struct iwm_fw_loader *l, uint32_t value)
+{
+    int rc = iwm_grab_nic_access(l->adapter);
+
+    if (rc != IWM_OK)
+        return rc;
+    wr(l, FH_UCODE_LOAD_STATUS, value);
+    iwm_release_nic_access(l->adapter);
+    return IWM_OK;
+}
+
 static int load_cpu(struct iwm_fw_loader *l, uint8_t image_flag, int cpu)
 {
     const struct iwm_fw_image *image;
     uint16_t i;
-    uint32_t status, bit;
+    uint32_t bit;
     int rc, found;
 
     image = &l->adapter->firmware.catalog;
-    status = rd(l, FH_UCODE_LOAD_STATUS);
+
     bit = 1U;
     found = 0;
     for (i = 0; i < image->section_count; ++i) {
@@ -342,16 +418,24 @@ static int load_cpu(struct iwm_fw_loader *l, uint8_t image_flag, int cpu)
         rc = load_section(l, &image->section[i]);
         if (rc != IWM_OK)
             return rc;
-        if (cpu == 1)
-            status |= bit;
-        else
-            status |= bit << 16;
-        wr(l, FH_UCODE_LOAD_STATUS, status);
+        rc = load_status_or(l, cpu == 1 ? bit : (bit << 16));
+        if (rc != IWM_OK)
+            return rc;
         bit = (bit << 1) | 1U;
     }
     if (!found && cpu == 1)
         return IWM_EFORMAT;
     return IWM_OK;
+}
+
+/* SB CPU1/CPU2 status, UMAC PC, LMAC PC: shows whether each CPU leaves its
+ * entry point after the load-status hand-off. */
+static void snap_sb(struct iwm_fw_loader *l, uint32_t out[4])
+{
+    (void)prph_read(l, SB_CPU_1_STATUS, &out[0]);
+    (void)prph_read(l, SB_CPU_2_STATUS, &out[1]);
+    (void)prph_read(l, UREG_UMAC_CURRENT_PC, &out[2]);
+    (void)prph_read(l, UREG_LMAC1_CURRENT_PC, &out[3]);
 }
 
 static int fail_load(struct iwm_fw_loader *l, int rc)
@@ -362,8 +446,30 @@ static int fail_load(struct iwm_fw_loader *l, int rc)
     l->last_fh_int = rd(l, CSR_FH_INT_STATUS);
     l->last_load_status = rd(l, FH_UCODE_LOAD_STATUS);
     l->last_gp_cntrl = rd(l, CSR_GP_CNTRL);
-    if (l->rxq)
+    l->last_hw_if = rd(l, CSR_HW_IF_CONFIG_REG);
+    (void)prph_read(l, SB_CPU_1_STATUS, &l->last_sb[0]);
+    (void)prph_read(l, SB_CPU_2_STATUS, &l->last_sb[1]);
+    (void)prph_read(l, UREG_UMAC_CURRENT_PC, &l->last_sb[2]);
+    (void)prph_read(l, UREG_LMAC1_CURRENT_PC, &l->last_sb[3]);
+    /* Firmware error tables: dword 0 'valid', dword 1 error_id. */
+    /* Kept here: iwm_fw_abort() below clears the catalog. */
+    l->last_lmac_err_addr = l->adapter->firmware.catalog.lmac_err_addr;
+    l->last_umac_err_addr = l->adapter->firmware.catalog.umac_err_addr;
+    mem_read(l, l->adapter->firmware.catalog.lmac_err_addr,
+             l->last_lmac_err, IWM_FW_ERRTAB_DWORDS);
+    mem_read(l, l->adapter->firmware.catalog.umac_err_addr,
+             l->last_umac_err, IWM_FW_ERRTAB_DWORDS);
+    if (l->rxq) {
         iwm_rx_debug(l->rxq, l->last_rfh);
+        /* RIDX moved but nothing closed: did the RFH write a frame into the
+         * first buffer anyway (status-block write lost) or nothing at all? */
+        if (l->rxq->buffers.vaddr)
+            memcpy(l->last_rxbuf, l->rxq->buffers.vaddr,
+                   sizeof(l->last_rxbuf));
+        if (l->rxq->used_desc.vaddr)
+            memcpy(l->last_used, l->rxq->used_desc.vaddr,
+                   sizeof(l->last_used));
+    }
     if (l->tx) {
         iwm_tx_debug_snapshot(l->tx, &txd);
         l->last_tx[0] = txd.keep_warm;
@@ -415,11 +521,18 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     l->alive_interrupt = 0;
     l->alive_notification = 0;
     l->irq_cause = 0;
+    l->irq_seen = 0;
+    l->irq_calls = 0;
+    l->alive_at = 0;
+    l->err_at = 0;
+    memset(l->early_sb, 0, sizeof(l->early_sb));
     l->last_csr_int = 0;
     l->last_fh_int = 0;
     l->last_load_status = 0;
     l->last_gp_cntrl = 0;
     memset(l->last_rfh, 0, sizeof(l->last_rfh));
+    memset(l->last_rxbuf, 0, sizeof(l->last_rxbuf));
+    memset(l->last_used, 0, sizeof(l->last_used));
     memset(l->last_tx, 0, sizeof(l->last_tx));
     memset(l->last_tx_state, 0, sizeof(l->last_tx_state));
 
@@ -427,6 +540,20 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     if (rc != IWM_OK)
         return fail_load(l, rc);
     l->stage = IWM_FWLS_PREPARED;
+    {
+        /* Linux iwl_pcie_nic_init() -> iwl_mvm_nic_config(), before RX/TX:
+         * the Linux iwlwifi trace of this card (HW_REV 0x312) writes
+         * CSR_HW_IF_CONFIG_REG = 0x18489002, i.e. the low nibble of
+         * CSR_HW_REV unchanged.  Radio type/step/dash come from the
+         * firmware PHY_SKU TLV. */
+        uint32_t phy = l->adapter->firmware.catalog.phy_config;
+        uint32_t val = l->adapter->hw_rev & 0x0fUL;
+        val |= (phy & 3UL) << 10;
+        val |= ((phy >> 4) & 3UL) << 12;
+        val |= ((phy >> 2) & 3UL) << 14;
+        wr(l, CSR_HW_IF_CONFIG_REG,
+           (rd(l, CSR_HW_IF_CONFIG_REG) & ~CSR_HW_IF_NIC_CONFIG_MASK) | val);
+    }
 
     /* Linux iwl_pcie_nic_init() prepares RX and TX before loading firmware.
      * The pre-ALIVE TX phase publishes keep-warm and command-TFD DMA state;
@@ -449,6 +576,9 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
 
     /* 8000/9000 secure boot: release the boot CPU, then feed CPU1 and CPU2
      * sections through the FH service channel while updating load status. */
+    rc = prph_write(l, WFPM_GP2, WFPM_GP2_VALUE);
+    if (rc != IWM_OK)
+        return fail_load(l, rc);
     rc = prph_write(l, RELEASE_CPU_RESET, RELEASE_CPU_RESET_BIT);
     if (rc != IWM_OK)
         return fail_load(l, rc);
@@ -457,19 +587,24 @@ int iwm_fw_loader_start(struct iwm_fw_loader *l, uint8_t image_flag)
     if (rc != IWM_OK)
         return fail_load(l, rc);
     wr(l, CSR_INT_MASK, IWM_CSR_INI_SET_MASK);
-    wr(l, FH_UCODE_LOAD_STATUS, 0x0000ffffUL);
+    rc = load_status_write(l, 0x0000ffffUL);
+    if (rc != IWM_OK)
+        return fail_load(l, rc);
 
     if (l->adapter->firmware.catalog.num_cpus > 1) {
-        rc = prph_write(l, LMPM_SECURE_CPU2_HDR_ADDR,
-                        LMPM_SECURE_CPU2_HDR_MEM_SPACE);
-        if (rc != IWM_OK)
-            return fail_load(l, rc);
+        /* No LMPM_SECURE_CPU2_HDR write: Linux and FreeBSD use it only in
+         * the pre-8000 loader, never in iwl_pcie_load_given_ucode_8000(). */
         l->stage = IWM_FWLS_CPU2;
         rc = load_cpu(l, image_flag, 2);
         if (rc != IWM_OK)
             return fail_load(l, rc);
-        wr(l, FH_UCODE_LOAD_STATUS, 0xffffffffUL);
+        rc = load_status_write(l, 0xffffffffUL);
+        if (rc != IWM_OK)
+            return fail_load(l, rc);
     }
+    snap_sb(l, l->early_sb[0]);
+    l->adapter->ops->delay_us(l->adapter->os_context, 10000U);
+    snap_sb(l, l->early_sb[1]);
     l->stage = IWM_FWLS_RELEASED;
 
     /* The CSR ALIVE cause is useful evidence but is not the protocol result.

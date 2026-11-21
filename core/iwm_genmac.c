@@ -136,9 +136,17 @@ int iwm_genmac_oid_get(struct iwm_adapter *a, struct iwm_oid_request *r)
     case OID_802_11_BSSID:
         return put(r, a->bssid, sizeof(a->bssid));
     case OID_802_11_SSID:
+        /* The SSID of the BSS the station is associated with; empty while not
+         * associated.  XWLAN (scan.c _refreshContainer) marks the scan entry
+         * whose SSID equals this value as the current network ("<*>") and
+         * does not offer Connect for it, so reporting the requested SSID
+         * after a failed attempt greyed out that network.  The requested SSID
+         * stays in a->ssid for the association layer. */
         memset(&ssid, 0, sizeof(ssid));
-        ssid.length = a->ssid_length;
-        memcpy(ssid.ssid, a->ssid, a->ssid_length);
+        if (a->connected) {
+            ssid.length = a->ssid_length;
+            memcpy(ssid.ssid, a->ssid, a->ssid_length);
+        }
         return put(r, &ssid, sizeof(ssid));
     case OID_802_11_POWER_MODE:
         return put_u32(r, a->power_mode);
@@ -173,16 +181,37 @@ int iwm_genmac_oid_set(struct iwm_adapter *a, struct iwm_oid_request *r)
         if (ssid->length > sizeof(a->ssid)) return IWM_EINVAL;
         memcpy(a->ssid, ssid->ssid, ssid->length);
         a->ssid_length = (uint8_t)ssid->length;
+        /* Policy: a non-empty SSID asks for association once the runtime
+         * firmware is up; an empty one only clears the stored name. */
+        if (a->ssid_length && a->firmware.state == IWM_FW_RUNNING)
+            a->assoc_request = 1;
         ++a->status_generation;
         r->bytes_done = sizeof(*ssid);
         return IWM_OK;
     case OID_802_11_BSSID_LIST_SCAN:
         if (a->firmware.state != IWM_FW_RUNNING) return IWM_ESTATE;
+        /* While associated the OS layer answers from the cache (an off-
+         * channel firmware scan would interrupt the data path), so the
+         * cache and the ASSOCIATED state are kept. */
+        if (a->connected) {
+            ++a->status_generation;
+            return IWM_OK;
+        }
         iwm_genmac_scan_reset(a);
         a->state = IWM_ADAPTER_SCANNING;
         ++a->status_generation;
         return IWM_OK;
+    case OID_802_11_BSSID:
+        if (!r->data || r->data_length < 6U) return IWM_EINVAL;
+        memcpy(a->req_bssid, r->data, 6);
+        /* All-ones means "any" (NDIS); all-zero is not a BSSID. */
+        a->req_bssid_valid = !(memcmp(a->req_bssid, "\xff\xff\xff\xff\xff\xff", 6) == 0 ||
+                               mac_is_zero(a->req_bssid));
+        r->bytes_done = 6;
+        return IWM_OK;
     case OID_802_11_DISASSOCIATE:
+        if (a->connected || a->assoc_request == 1)
+            a->assoc_request = 2;
         a->connected = 0;
         a->state = IWM_ADAPTER_READY;
         memset(a->bssid, 0, sizeof(a->bssid));
@@ -223,6 +252,17 @@ int iwm_genmac_oid_set(struct iwm_adapter *a, struct iwm_oid_request *r)
         a->privacy_filter = value;
         r->bytes_done = sizeof(value);
         return IWM_OK;
+    case OID_802_11_REMOVE_WEP:
+        /* WRND32$ (d9): after the scan list XWLAN issues SET 0d010118
+         * (accepted) and then SET 0d010114 with a 4-byte key index; the driver
+         * answered NOT_SUPPORTED (st c00000bb) and no OID_802_11_SSID SET ever
+         * followed.  No key is ever installed, so removing one leaves exactly
+         * the state the caller asked for: succeed. */
+        if (get_u32(r, &value) != IWM_OK)
+            return IWM_EINVAL;
+        r->bytes_done = sizeof(value);
+        return IWM_OK;
+    case OID_802_11_ADD_WEP:
     case OID_802_11_ADD_KEY:
     case OID_802_11_REMOVE_KEY:
         /* Key-command construction is a required milestone before WPA traffic. */
@@ -270,13 +310,58 @@ int iwm_genmac_scan_add(struct iwm_adapter *a,
     return IWM_OK;
 }
 
+int iwm_genmac_scan_upsert(struct iwm_adapter *a,
+                           const struct iwm_scan_result *result)
+{
+    struct iwm_scan_cache *cache;
+    uint16_t i;
+    if (!a || !result || !a->scan_cache)
+        return IWM_EINVAL;
+    if (result->ssid_length > sizeof(result->ssid) ||
+        result->ie_length > sizeof(result->ies))
+        return IWM_EINVAL;
+    cache = a->scan_cache;
+    for (i = 0; i < cache->count; ++i) {
+        if (memcmp(cache->result[i].bssid, result->bssid, 6) == 0) {
+            memcpy(&cache->result[i], result, sizeof(*result));
+            return IWM_OK;
+        }
+    }
+    return iwm_genmac_scan_add(a, result);
+}
+
+void iwm_genmac_link_up(struct iwm_adapter *a, const uint8_t bssid[6],
+                        int32_t rssi_dbm)
+{
+    if (!a || !bssid)
+        return;
+    memcpy(a->bssid, bssid, 6);
+    a->rssi_dbm = rssi_dbm;
+    a->connected = 1;
+    a->state = IWM_ADAPTER_ASSOCIATED;
+    ++a->status_generation;
+}
+
+void iwm_genmac_link_down(struct iwm_adapter *a)
+{
+    if (!a)
+        return;
+    a->connected = 0;
+    memset(a->bssid, 0, sizeof(a->bssid));
+    if (a->state == IWM_ADAPTER_ASSOCIATED || a->state == IWM_ADAPTER_SCANNING)
+        a->state = IWM_ADAPTER_READY;
+    ++a->status_generation;
+}
+
 void iwm_genmac_scan_complete(struct iwm_adapter *a, int status)
 {
     if (!a)
         return;
     if (status == IWM_OK) {
-        a->state = IWM_ADAPTER_READY;
+        a->state = a->connected ? IWM_ADAPTER_ASSOCIATED : IWM_ADAPTER_READY;
         ++a->status_generation;
+    } else if (a->connected) {
+        a->state = IWM_ADAPTER_ASSOCIATED;
     } else {
         a->state = IWM_ADAPTER_ERROR;
     }

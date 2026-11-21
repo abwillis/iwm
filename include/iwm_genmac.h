@@ -18,6 +18,8 @@
 #define OID_802_11_NETWORK_TYPE_IN_USE      0x0D010204UL
 #define OID_802_11_RSSI                     0x0D010206UL
 #define OID_802_11_INFRASTRUCTURE_MODE      0x0D010108UL
+#define OID_802_11_ADD_WEP                  0x0D010113UL
+#define OID_802_11_REMOVE_WEP               0x0D010114UL
 #define OID_802_11_DISASSOCIATE             0x0D010115UL
 #define OID_802_11_POWER_MODE               0x0D010216UL
 #define OID_802_11_BSSID_LIST               0x0D010217UL
@@ -95,7 +97,13 @@ struct iwm_scan_result {
     uint32_t ds_config_khz;
     uint32_t beacon_period;
     uint8_t rates[16];
-    uint16_t ie_length;
+    uint16_t ie_length;       /* bytes copied into ies[] (cut at IWM_SCAN_MAX_IE) */
+    /* Seen while parsing the whole frame, so a WMM or HT element that lies
+     * beyond the IE copy limit is still reported.  w2/w3 log: the beacons of
+     * this AP carry 334-367 bytes of IEs, the copy holds 185-250. */
+    uint16_t ie_total;        /* IE bytes in the frame, after the fixed fields */
+    uint8_t wmm;              /* WMM information or parameter element present */
+    uint8_t ht;               /* HT capabilities element present (>= 26 bytes) */
     uint8_t ies[IWM_SCAN_MAX_IE];
 };
 
@@ -121,9 +129,18 @@ int iwm_genmac_oid_set(struct iwm_adapter *adapter,
 void iwm_genmac_bind_scan_cache(struct iwm_adapter *adapter,
                                 struct iwm_scan_cache *cache);
 void iwm_genmac_scan_reset(struct iwm_adapter *adapter);
+/* Add a result, or replace the cached entry with the same BSSID (a later
+ * beacon or probe response of the same BSS). */
+int iwm_genmac_scan_upsert(struct iwm_adapter *adapter,
+                           const struct iwm_scan_result *result);
 int iwm_genmac_scan_add(struct iwm_adapter *adapter,
                         const struct iwm_scan_result *result);
 void iwm_genmac_scan_complete(struct iwm_adapter *adapter, int status);
+/* Association outcome from the OS layer: connected, BSSID and signal for the
+ * GET OIDs, and a status-generation bump for XWLAN. */
+void iwm_genmac_link_up(struct iwm_adapter *adapter, const uint8_t bssid[6],
+                        int32_t rssi_dbm);
+void iwm_genmac_link_down(struct iwm_adapter *adapter);
 
 #endif
 

@@ -20,11 +20,11 @@ CF_T  = -q -bt=os2 -zq -w3 -6s -zp4 -d__OS2__ -bm -od -d1 $(INC_T)
 TCC   = $(CC) $(CF_T)
 TCORE_OBJS = t_devices.obj t_crc32.obj t_fw_stream.obj t_fw_image.obj &
                t_fw_loader.obj t_transport.obj t_bar.obj t_hw.obj &
-               t_rings.obj t_rx.obj t_tx.obj t_genmac.obj t_ndis.obj t_os2ioctl.obj t_os2adapter.obj
+               t_rings.obj t_rx.obj t_tx.obj t_genmac.obj t_ndis.obj t_init_fw.obj t_rt_fw.obj t_rt_seq.obj t_scan.obj t_assoc.obj t_sta.obj t_sta_seq.obj t_data.obj t_os2ioctl.obj t_os2adapter.obj
 TEST_EXES = test_core.exe test_fw_fixes.exe test_fw_image.exe test_transport.exe &
-              test_oid.exe test_os2_adapter.exe test_bar.exe test_fw_loader.exe test_rx.exe test_tx.exe
+              test_oid.exe test_os2_adapter.exe test_bar.exe test_fw_loader.exe test_rx.exe test_tx.exe test_init_fw.exe test_rt_fw.exe test_scan.exe test_assoc.exe test_sta.exe test_data.exe
 RUN_TESTS = run_test_core run_test_fw_fixes run_test_fw_image run_test_transport &
-              run_test_oid run_test_os2_adapter run_test_bar run_test_fw_loader run_test_rx run_test_tx
+              run_test_oid run_test_os2_adapter run_test_bar run_test_fw_loader run_test_rx run_test_tx run_test_init_fw run_test_rt_fw run_test_scan run_test_assoc run_test_sta run_test_data
 testbuild: .SYMBOLIC $(TEST_EXES)
 testinit: .SYMBOLIC
     @if exist testpass.txt del testpass.txt
@@ -83,6 +83,31 @@ t_tx.obj: core\iwm_tx.c .AUTODEPEND
 t_genmac.obj: core\iwm_genmac.c .AUTODEPEND
     @if exist $@ del $@
     -$(TCC) -fo=$@ core\iwm_genmac.c
+t_init_fw.obj: core\iwm_init_fw.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_init_fw.c
+t_rt_fw.obj: core\iwm_rt_fw.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_rt_fw.c
+t_rt_seq.obj: core\iwm_rt_seq.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_rt_seq.c
+t_scan.obj: core\iwm_scan.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_scan.c
+t_assoc.obj: core\iwm_assoc.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_assoc.c
+t_sta.obj: core\iwm_sta.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_sta.c
+t_sta_seq.obj: core\iwm_sta_seq.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_sta_seq.c
+t_data.obj: core\iwm_data.c .AUTODEPEND
+    @if exist $@ del $@
+    -$(TCC) -fo=$@ core\iwm_data.c
+
 t_ndis.obj: core\iwm_ndis.c .AUTODEPEND
     @if exist $@ del $@
     -$(TCC) -fo=$@ core\iwm_ndis.c
@@ -215,6 +240,96 @@ run_test_tx: .SYMBOLIC test_tx.exe
     @if exist test_tx.exe test_tx.exe > test_tx.log 2>&1 && echo test_tx>> testpass.txt || echo test_tx>> testfail.txt
     @if not exist test_tx.exe echo test_tx>> testnobld.txt
     @if exist test_tx.log type test_tx.log
+tm_init_fw.obj: tests\test_init_fw.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_init_fw.exe del test_init_fw.exe
+    -$(TCC) -fo=$@ tests\test_init_fw.c
+
+test_init_fw.exe: tm_init_fw.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_init_fw.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+
+run_test_init_fw: .SYMBOLIC test_init_fw.exe
+    @if exist test_init_fw.log del test_init_fw.log
+    @if exist test_init_fw.exe test_init_fw.exe > test_init_fw.log 2>&1 && echo test_init_fw>> testpass.txt || echo test_init_fw>> testfail.txt
+    @if not exist test_init_fw.exe echo test_init_fw>> testnobld.txt
+    @if exist test_init_fw.log type test_init_fw.log
+
+tm_rt_fw.obj: tests\test_rt_fw.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_rt_fw.exe del test_rt_fw.exe
+    -$(TCC) -fo=$@ tests\test_rt_fw.c
+
+test_rt_fw.exe: tm_rt_fw.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_rt_fw.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+
+run_test_rt_fw: .SYMBOLIC test_rt_fw.exe
+    @if exist test_rt_fw.log del test_rt_fw.log
+    @if exist test_rt_fw.exe test_rt_fw.exe > test_rt_fw.log 2>&1 && echo test_rt_fw>> testpass.txt || echo test_rt_fw>> testfail.txt
+    @if not exist test_rt_fw.exe echo test_rt_fw>> testnobld.txt
+    @if exist test_rt_fw.log type test_rt_fw.log
+
+tm_scan.obj: tests\test_scan.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_scan.exe del test_scan.exe
+    -$(TCC) -fo=$@ tests\test_scan.c
+
+test_scan.exe: tm_scan.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_scan.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+
+run_test_scan: .SYMBOLIC test_scan.exe
+    @if exist test_scan.log del test_scan.log
+    @if exist test_scan.exe test_scan.exe > test_scan.log 2>&1 && echo test_scan>> testpass.txt || echo test_scan>> testfail.txt
+    @if not exist test_scan.exe echo test_scan>> testnobld.txt
+    @if exist test_scan.log type test_scan.log
+
+tm_assoc.obj: tests\test_assoc.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_assoc.exe del test_assoc.exe
+    -$(TCC) -fo=$@ tests\test_assoc.c
+
+test_assoc.exe: tm_assoc.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_assoc.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+
+run_test_assoc: .SYMBOLIC test_assoc.exe
+    @if exist test_assoc.log del test_assoc.log
+    @if exist test_assoc.exe test_assoc.exe > test_assoc.log 2>&1 && echo test_assoc>> testpass.txt || echo test_assoc>> testfail.txt
+    @if not exist test_assoc.exe echo test_assoc>> testnobld.txt
+    @if exist test_assoc.log type test_assoc.log
+
+tm_sta.obj: tests\test_sta.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_sta.exe del test_sta.exe
+    -$(TCC) -fo=$@ tests\test_sta.c
+
+test_sta.exe: tm_sta.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_sta.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+
+run_test_sta: .SYMBOLIC test_sta.exe
+    @if exist test_sta.log del test_sta.log
+    @if exist test_sta.exe test_sta.exe > test_sta.log 2>&1 && echo test_sta>> testpass.txt || echo test_sta>> testfail.txt
+    @if not exist test_sta.exe echo test_sta>> testnobld.txt
+    @if exist test_sta.log type test_sta.log
+
+tm_data.obj: tests\test_data.c .AUTODEPEND
+    @if exist $@ del $@
+    @if exist test_data.exe del test_data.exe
+    -$(TCC) -fo=$@ tests\test_data.c
+
+test_data.exe: tm_data.obj $(TCORE_OBJS)
+    @if exist $@ del $@
+    -$(LINK) name $@ system os2v2 option quiet,stack=128k file { tm_data.obj $(TCORE_OBJS) } libpath $(OS2TK_LIB)
+
+run_test_data: .SYMBOLIC test_data.exe
+    @if exist test_data.log del test_data.log
+    @if exist test_data.exe test_data.exe > test_data.log 2>&1 && echo test_data>> testpass.txt || echo test_data>> testfail.txt
+    @if not exist test_data.exe echo test_data>> testnobld.txt
+    @if exist test_data.log type test_data.log
+
 testclean: .SYMBOLIC
     @if exist tm_*.obj del tm_*.obj
     @if exist t_*.obj del t_*.obj

@@ -90,6 +90,25 @@ int main(void)
                          IWM_PRIVACY_ACCEPT_ALL, NULL) == IWM_OK);
     assert(set_oid(&a, OID_802_11_ADD_KEY) == IWM_ENOTSUP);
     assert(set_oid(&a, OID_802_11_REMOVE_KEY) == IWM_ENOTSUP);
+    /* Open-network connect sequence from XWLAN: REMOVE_WEP for each key
+     * index must succeed; installing a WEP key stays unsupported. */
+    {
+        struct iwm_oid_request rw;
+        uint16_t shortdata = 3;
+        assert(set_oid_value(&a, OID_802_11_REMOVE_WEP, 0, &rw) == IWM_OK);
+        assert(rw.bytes_done == 4U);
+        assert(set_oid_value(&a, OID_802_11_REMOVE_WEP, 3, NULL) == IWM_OK);
+        assert(set_oid_value(&a, OID_802_11_REMOVE_WEP, 0x80000001UL, NULL) == IWM_OK);
+        memset(&rw, 0, sizeof(rw));
+        rw.oid = OID_802_11_REMOVE_WEP;
+        rw.data = &shortdata;
+        rw.data_length = sizeof(shortdata);
+        assert(iwm_genmac_oid_set(&a, &rw) == IWM_EINVAL);
+        rw.data = NULL;
+        rw.data_length = 0;
+        assert(iwm_genmac_oid_set(&a, &rw) == IWM_EINVAL);
+        assert(set_oid(&a, OID_802_11_ADD_WEP) == IWM_ENOTSUP);
+    }
     assert(set_oid(&a, OID_802_11_INFRASTRUCTURE_MODE) == IWM_OK);
 
     value = 99;

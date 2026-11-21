@@ -1,15 +1,25 @@
+; Merge these entries into C:\IBMCOM\PROTOCOL.INI.  Preserve every existing
+; binding; append IWM32_NIF to the TCPIP_NIF Bindings list.
+
 [PROT_MAN]
+
    DRIVERNAME = PROTMAN$
 
 [IBMLXCFG]
+
    TCPIP_NIF = TCPIP.NIF
-   IWMAC_NIF = IWMAC.NIF
+   MMLEM_NIF = MMLEM.NIF
+   IWM32_NIF = IWM32.NIF
 
 [TCPIP_NIF]
-   DriverName = TCPIP$
-   Bindings = IWMAC_NIF
 
-[IWMAC_NIF]
+   DriverName = TCPIP$
+   Bindings = MMLEM_NIF,IWM32_NIF
+
+[MMLEM_NIF]
+
+   DriverName = MMLEM$
+
+[IWM32_NIF]
+
    DriverName = WRND32$
-   ; Adapter = 0
-   ; Verbose = YES

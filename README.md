@@ -15,6 +15,7 @@ The project also includes IDs/configuration aliases for the 3160, 3165, 3168, 72
 - `core/` — portable device selection, firmware stream validation, CSR bring-up subset, DMA ring planning, GenMAC OIDs and NDIS-neutral packet hooks.
 - `os2/` — OS/2-only boundary for DevHelp, PCI, selectors, interrupt registration, request packets and MultiMac NDIS glue.
 - `tools/iwmfwld.c` — ring-3 firmware loader. It computes CRC32 and transfers the selected Intel `.ucode` file with BEGIN/DATA/COMMIT IOCTLs instead of embedding a large image in a 16-bit data segment.
+- `tools/ssidconnect.c` — open-network test CLI and SSID scanner. It accepts OS/2 `/OPTION` or `-OPTION` forms, can refresh/list the GenMAC scan cache, or set an SSID, wait for the driver link acknowledgement, optionally reset stale classic DHCP state, and start DHCP on the requested `lanN` interface.
 - `install/` — CONFIG.SYS, PROTOCOL.INI, NIF and STARTUP.CMD templates.
 - `tests/` — host-side tests for device matching, the firmware protocol, ring sizing, RFH RX/ALIVE and GenMAC discovery.
 

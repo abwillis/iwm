@@ -23,6 +23,8 @@
 #define FH_KW_MEM_ADDR_REG 0x197cU
 #define FH_MEM_CBBC_QUEUE0 0x19d0U
 #define RELEASE_CPU_RESET 0x300cU
+#define HBUS_TARG_MEM_RADDR 0x40cU
+#define HBUS_TARG_MEM_RDAT 0x41cU
 
 struct mock_hw {
     uint32_t regs[2048];
@@ -34,6 +36,8 @@ struct mock_hw {
     uint32_t next_phys;
     struct iwm_rx_queue *rxq;
     int cpu_released;
+    unsigned status_writes;
+    unsigned status_unlocked;
 };
 
 struct mem_store {
@@ -88,6 +92,12 @@ static uint32_t mock_read(void *p, uint32_t off)
     struct mock_hw *m = (struct mock_hw *)p;
     if (off == FH_UCODE_LOAD_STATUS)
         return m->load_status;
+    if (off == HBUS_TARG_MEM_RDAT)   /* fake error table: tag + address */
+    {
+        uint32_t a = m->regs[HBUS_TARG_MEM_RADDR >> 2];
+        m->regs[HBUS_TARG_MEM_RADDR >> 2] = a + 4U; /* auto-increment */
+        return 0xE0000000UL | (a & 0xffffUL);
+    }
     if (off == HBUS_TARG_PRPH_RDAT && m->prph_raddr == FH_UCODE_LOAD_STATUS)
         return m->load_status;
     return m->regs[(off >> 2) & 2047U];
@@ -160,6 +170,9 @@ static void mock_write(void *p, uint32_t off, uint32_t value)
         return;
     }
     if (off == FH_UCODE_LOAD_STATUS) {
+        ++m->status_writes;
+        if (!(m->regs[CSR_GP_CNTRL >> 2] & 0x8U))   /* MAC_ACCESS_REQ */
+            ++m->status_unlocked;
         m->load_status = value;
         if (value == 0xffffffffUL && m->signal_alive &&
             m->cpu_released && m->rxq && m->rxq->programmed &&
@@ -259,6 +272,7 @@ int main(void)
     im->section_count = 7;
     im->runtime_count = 3;
     im->init_count = 2;
+    im->phy_config = 0x31; /* radio type 1, step 0, dash 3 */
     for (i = 0; i < im->section_count; ++i) {
         im->section[i].data_offset = i * 8U;
         im->section[i].data_length = 8;
@@ -277,10 +291,16 @@ int main(void)
     im->section[6].flags = IWM_FW_SEC_INIT;
 
     assert(iwm_fw_section_cpu(im, 1, IWM_FW_SEC_INIT) == 1);
-    assert(iwm_fw_section_cpu(im, 6, IWM_FW_SEC_INIT) == 2);
+    /* Section 2 is a RUNTIME separator: it splits RT, not INIT (Linux). */
+    assert(iwm_fw_section_cpu(im, 6, IWM_FW_SEC_INIT) == 1);
     assert(iwm_fw_section_cpu(im, 0, IWM_FW_SEC_RUNTIME) == 1);
     assert(iwm_fw_section_cpu(im, 3, IWM_FW_SEC_RUNTIME) == 2);
     assert(iwm_fw_section_cpu(im, 5, IWM_FW_SEC_RUNTIME) == 0);
+    /* An INIT-typed separator does split INIT and no longer splits RT. */
+    im->section[2].flags = IWM_FW_SEC_INIT | IWM_FW_SEC_SEPARATOR;
+    assert(iwm_fw_section_cpu(im, 6, IWM_FW_SEC_INIT) == 2);
+    assert(iwm_fw_section_cpu(im, 3, IWM_FW_SEC_RUNTIME) == 1);
+    im->section[2].flags = IWM_FW_SEC_RUNTIME | IWM_FW_SEC_SEPARATOR;
 
     a.firmware.state = IWM_FW_LOADING;
     a.state = IWM_ADAPTER_FW_WAIT;
@@ -306,6 +326,11 @@ int main(void)
     assert(loader.stage == IWM_FWLS_ALIVE_IRQ);
     assert(a.firmware.state == IWM_FW_LOADING); /* RX ALIVE still required */
     assert(hw.transfers == 2);
+    /* Load-status handshake writes (per section, 0xffff, 0xffffffff) all
+     * happen under MAC access. */
+    assert(hw.status_writes >= 4 && hw.status_unlocked == 0);
+    /* nic_config: HW_REV low nibble 2 (rev 0x312), PHY type 1, dash 3. */
+    assert((hw.regs[0] & 0xff0fUL) == 0x3402UL);
     assert(tx.prepared && tx.scheduler_started);
     assert(hw.regs[FH_KW_MEM_ADDR_REG >> 2] == tx.keep_warm.paddr >> 4);
     assert(hw.regs[FH_MEM_CBBC_QUEUE0 >> 2] == tx.cmd_tfds.paddr >> 8);
@@ -317,6 +342,8 @@ int main(void)
 
     /* A missing early ALIVE is a load failure, not a successful COMMIT. */
     hw.signal_alive = 0;
+    im->lmac_err_addr = 0x00801230UL;
+    im->umac_err_addr = 0;
     hw.regs[CSR_INT >> 2] = 0;
     hw.load_status = 0;
     a.firmware.state = IWM_FW_LOADING;
@@ -334,6 +361,14 @@ int main(void)
     assert(loader.last_tx_state[0] && loader.last_tx_state[1]);
     assert(!loader.last_tx_state[2]); /* SCD starts only after valid ALIVE. */
     assert(loader.last_tx[0] != 0 && loader.last_tx[1] != 0);
+    /* The LMAC error table is read on failure; an absent UMAC one is not. */
+    assert(loader.last_lmac_err[0] == 0xE0001230UL);
+    assert(loader.last_lmac_err[1] == 0xE0001234UL);
+    assert(loader.last_umac_err[0] == 0 && loader.last_umac_err[1] == 0);
+    /* Addresses survive iwm_fw_abort() clearing the catalog. */
+    assert(loader.last_lmac_err_addr == 0x00801230UL);
+    assert(loader.last_umac_err_addr == 0);
+    assert(loader.last_lmac_err[23] == 0xE000128cUL);
     iwm_fw_loader_free(&loader);
     iwm_tx_free(&tx);
     iwm_rx_free(&rxq);

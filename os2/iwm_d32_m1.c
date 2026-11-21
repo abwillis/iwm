@@ -14,11 +14,30 @@
 #define CSR_FH_INT_STATUS 0x010
 #define IWM_INT_FH_TX    0x08000000UL
 #define IWM_FH_INT_TX_MASK 0x00000003UL
+/* Linux iwl-csr.h: CSR_INT_BIT_FH_RX and CSR_INT_BIT_SW_RX are summaries of
+ * CSR_FH_INT_STATUS RX_CHNL0 (16), RX_CHNL1 (17) and HI_PRIOR (30)
+ * (CSR_FH_INT_RX_MASK); iwl_pcie_irq_handler() clears them on every RX. */
+#define IWM_INT_FH_RX    0x80000000UL
+#define IWM_INT_SW_RX    0x00000008UL
+#define IWM_FH_INT_RX_MASK 0x40030000UL
 #define PCI_CMD          0x04
 #define PCI_CMD_INTX_DIS 0x0400
 /* MSI capability at 0xD0 on this 8086:a370 (lspci "Capabilities: [d0] MSI",
  * 64-bit): control at +2, address low +4, address high +8, data +0x0C. */
 #define PCI_MSI_CAP      0xD0
+/* Value iwm_msi_isr() returns for an interrupt it handled.  A/B test on the
+ * 9560 (d7 logs): with 0 the kernel cleared MSI Enable after exactly 11
+ * handler entries (msictl 0081 -> 0080, INT/FH latched, no more MSIs); with 1
+ * it never did through INIT, the runtime load and every scan in the log
+ * (146 entries).
+ * The PDD Reference and driver-lifecycle.md describe the contract as: claimed
+ * = carry clear, unclaimed = carry set, and the kernel masks an IRQ after
+ * more than 10 unclaimed in a row.  So 1 means handled; an entry that found
+ * no cause always returns the opposite value (unclaimed).  Build with
+ * IWM_DEFS=-dIWM_ISR_HANDLED=0 to reproduce the old behaviour. */
+#ifndef IWM_ISR_HANDLED
+#define IWM_ISR_HANDLED  1
+#endif
 
 /* Exported for the strategy READ handler.             M1 read-out */
 volatile unsigned long iwm_m1_rc = 0xFFFFFFFFUL;
@@ -28,6 +47,12 @@ volatile unsigned long iwm_m1_irq_count;
 
 static volatile ULONG *g_csr;
 static ULONG g_irq;
+static USHORT g_bdf;
+static volatile ULONG g_mask_shadow;
+static volatile ULONG g_isr_entries;
+static volatile ULONG g_isr_zero;
+static volatile ULONG g_isr_gone;
+static ULONG g_msi_rearms;
 static volatile ULONG g_last_cause;
 static SpinLock_t g_lock;
 
@@ -53,22 +78,31 @@ static int iwm_msi_isr(ULONG data)
 
     (void)data;
     KernAcquireSpinLock(&g_lock);
+    ++g_isr_entries;
     cause = 0;
     if (g_csr) {
         /* Linux iwl_pcie_isr pattern: mask, read and acknowledge, then
          * restore the mask. Restoring it makes the device send a fresh MSI
          * for any cause that latched while the handler ran; without this a
          * cause such as ALIVE or SW_ERR can stay pending with no interrupt. */
-        ULONG mask = g_csr[CSR_INT_MASK / 4];
         g_csr[CSR_INT_MASK / 4] = 0;
         cause = g_csr[CSR_INT / 4];
         if (cause != 0 && cause != 0xFFFFFFFFUL) {
             g_csr[CSR_INT / 4] = cause;      /* write-1-to-clear */
             if (cause & IWM_INT_FH_TX)       /* source of the FH_TX summary */
                 g_csr[CSR_FH_INT_STATUS / 4] = IWM_FH_INT_TX_MASK;
+            /* Same two-level latch for RX: without this the FH_RX summary
+             * stays set after the first RX packet (log: fh 40010000,
+             * int 80000001) and no further MSI is generated. */
+            if (cause & (IWM_INT_FH_RX | IWM_INT_SW_RX))
+                g_csr[CSR_FH_INT_STATUS / 4] = IWM_FH_INT_RX_MASK;
         }
-        if (cause != 0xFFFFFFFFUL)
-            g_csr[CSR_INT_MASK / 4] = mask;
+        if (cause == 0)
+            ++g_isr_zero;
+        if (cause == 0xFFFFFFFFUL)
+            ++g_isr_gone;
+        else
+            g_csr[CSR_INT_MASK / 4] = g_mask_shadow;
     }
     g_last_cause = cause;
     if (cause != 0 && cause != 0xFFFFFFFFUL)
@@ -77,7 +111,65 @@ static int iwm_msi_isr(ULONG data)
     if (cause != 0 && cause != 0xFFFFFFFFUL)
         iwm_d32_irq_notify(cause);
     Dev32Help_EOI(g_irq);
-    return 0; /* return-value meaning not documented in Dev32Help.h */
+    /* See IWM_ISR_HANDLED. */
+    return (cause != 0 && cause != 0xFFFFFFFFUL) ? IWM_ISR_HANDLED
+                                                  : !IWM_ISR_HANDLED;
+}
+
+void iwm_d32_set_int_mask(unsigned long mask)
+{
+    KernAcquireSpinLock(&g_lock);
+    g_mask_shadow = mask;
+    if (g_csr)
+        g_csr[CSR_INT_MASK / 4] = mask;
+    KernReleaseSpinLock(&g_lock);
+}
+
+void iwm_d32_int_dump(const char *tag)
+{
+    static USHORT ctl, data, cmd;   /* static: see W112 note */
+    static ULONG lo, hi;
+    ULONG ci = 0, cm = 0, fh = 0;
+    if (g_csr) {
+        ci = g_csr[CSR_INT / 4];
+        cm = g_csr[CSR_INT_MASK / 4];
+        fh = g_csr[CSR_FH_INT_STATUS / 4];
+    }
+    ctl = data = cmd = 0;
+    lo = hi = 0;
+    PciReadConfig(g_bdf, PCI_CMD, 2, &cmd);
+    PciReadConfig(g_bdf, PCI_MSI_CAP + 2, 2, &ctl);
+    PciReadConfig(g_bdf, PCI_MSI_CAP + 4, 4, &lo);
+    PciReadConfig(g_bdf, PCI_MSI_CAP + 8, 4, &hi);
+    PciReadConfig(g_bdf, PCI_MSI_CAP + 0x0C, 2, &data);
+    dprintf(0,
+        "iwm: intdump %s isr %lu zero %lu gone %lu msi %lu int %08lx mask %08lx fh %08lx shadow %08lx cmd %04x msictl %04x addr %08lx:%08lx data %04x\n",
+        tag, g_isr_entries, g_isr_zero, g_isr_gone, iwm_m1_irq_count,
+        ci, cm, fh, g_mask_shadow, cmd, ctl, hi, lo, data);
+}
+
+unsigned iwm_d32_msi_ctl(void)
+{
+    static USHORT ctl;   /* static: see W112 note */
+    ctl = 0;
+    PciReadConfig(g_bdf, PCI_MSI_CAP + 2, 2, &ctl);
+    return ctl;
+}
+
+int iwm_d32_msi_rearm(const char *tag)
+{
+    static USHORT before, after;   /* static: see W112 note */
+    before = after = 0;
+    PciReadConfig(g_bdf, PCI_MSI_CAP + 2, 2, &before);
+    if (before & 0x0001U)
+        return 0;
+    PciWriteConfig(g_bdf, PCI_MSI_CAP + 2, 2, before | 0x0001U);
+    PciReadConfig(g_bdf, PCI_MSI_CAP + 2, 2, &after);
+    ++g_msi_rearms;
+    dprintf(0, "iwm: msi rearm %s ctl %04x>%04x count %lu isr %lu msi %lu\n",
+            tag, before, after, g_msi_rearms, g_isr_entries,
+            iwm_m1_irq_count);
+    return 1;
 }
 
 int iwm_d32_m1(void)
@@ -90,6 +182,7 @@ int iwm_d32_m1(void)
 
     bdf = PciFindDevice(IWM_VENDOR, IWM_DEVICE, 0);
     if (bdf == 0xFFFF) { dprintf(0, "iwm: device not found\n"); return 1; }
+    g_bdf = bdf;
     if (PciGetDeviceInfo(bdf, &di)) return 2;
     dprintf(0, "iwm: bdf %x sub %x:%x rev %x pin %d line %d\n",
             bdf, di.subsystem_vendor, di.subsystem_device,
@@ -140,8 +233,8 @@ int iwm_d32_m1(void)
         rc = 11;
         goto unregister;
     }
-    dprintf(0, "iwm: MSI irq %lu installed; count %lu (expect 0)\n",
-            g_irq, iwm_m1_irq_count);                 /* M1 read-out */
+    dprintf(0, "iwm: MSI irq %lu installed; count %lu (expect 0) isr-handled %d\n",
+            g_irq, iwm_m1_irq_count, IWM_ISR_HANDLED);  /* M1 read-out */
     {
         static USHORT msi_ctl, msi_data, pcmd;   /* static: see W112 note */
         static ULONG msi_lo, msi_hi;

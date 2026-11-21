@@ -63,6 +63,11 @@ struct iwm_adapter {
     uint8_t lan_number;
     uint16_t state;
     uint32_t hw_rev;
+    uint32_t hpm_debug;  /* HPM_DEBUG read before the software reset */
+    uint32_t hpm_after;      /* HPM_DEBUG after the persistence clear */
+    uint32_t wfpm_ctrl[2];   /* WFPM_CTRL_REG before/after ENABLE_WFPM */
+    int32_t wfpm_rc;         /* wake + ENABLE_WFPM result */
+    uint32_t ureg_chick[2];  /* UREG_CHICK before/after MSI_ENABLE */
     uint32_t pending_interrupts;
     uint32_t link_speed_kbps;
     int32_t rssi_dbm;
@@ -80,6 +85,11 @@ struct iwm_adapter {
     uint8_t ssid[32];
     uint8_t ssid_length;
     struct iwm_scan_cache *scan_cache;
+    /* Recorded by OID_802_11_SSID / BSSID / DISASSOCIATE SET and consumed by
+     * the OS layer: 0 none, 1 associate, 2 disassociate. */
+    uint8_t assoc_request;
+    uint8_t req_bssid_valid;
+    uint8_t req_bssid[6];
     struct iwm_fw_session firmware;
     struct iwm_ring_plan ring_plan;
     struct iwm_dma_block tx_desc;
